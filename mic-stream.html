@@ -78,6 +78,7 @@
     <button class="btn-primary" onclick="startRole('sender')">📤 I'm the Sender (mic)</button>
     <button class="btn-primary" onclick="startRole('listener')">📥 I'm the Listener (speaker)</button>
   </div>
+  <div class="hint">Note: the Listener will also briefly ask for mic permission. It never actually sends your audio — this is only needed so the connection negotiates correctly. You can ignore/ deny it, but allowing it is more reliable.</div>
 </div>
 
 <!-- SENDER PANEL -->
@@ -110,7 +111,8 @@ const iceConfig = {
 };
 
 let peer = null;
-let localStream = null;
+let localStream = null;        // sender's real mic stream
+let listenerLocalStream = null; // listener's muted placeholder stream (needed for negotiation)
 let micEnabled = false;
 let role = null;
 let roomCode = '';
@@ -228,7 +230,22 @@ function toggleMic(){
 }
 
 // ---------- LISTENER ----------
-function startListener(){
+async function startListener(){
+  setStatus('listener', 'Preparing connection...', 'connecting');
+
+  // We request a real mic track (then immediately disable/mute it) purely so
+  // the WebRTC offer negotiates a proper two-way audio slot. Without a real
+  // track here, PeerJS builds an offer with no audio to receive on, and the
+  // sender's audio never arrives even though ICE connects fine.
+  try{
+    listenerLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    listenerLocalStream.getAudioTracks().forEach(t => t.enabled = false);
+    log('Local placeholder track ready (muted, not sent anywhere meaningful).', 'ok');
+  }catch(e){
+    log('Could not get local mic for negotiation (' + e.message + '). Will try with empty stream, may not work on all browsers.', 'warn');
+    listenerLocalStream = new MediaStream();
+  }
+
   setStatus('listener', 'Connecting to relay...', 'connecting');
   const myId = roomCode + '-listener-' + Math.floor(Math.random()*100000);
   log('Registering as: ' + myId, 'info');
@@ -256,8 +273,7 @@ function attemptCall(){
   if(retryTimer) clearTimeout(retryTimer);
   const targetId = roomCode + '-sender';
   log('Calling ' + targetId + '...', 'info');
-  const dummyStream = new MediaStream();
-  const call = peer.call(targetId, dummyStream);
+  const call = peer.call(targetId, listenerLocalStream);
 
   if(!call){
     log('call() returned nothing — peer connection may not be ready.', 'err');
@@ -270,6 +286,7 @@ function attemptCall(){
   };
 
   call.on('stream', remoteStream=>{
+    if(retryTimer) clearTimeout(retryTimer);
     const audioEl = document.getElementById('remoteAudio');
     audioEl.srcObject = remoteStream;
     audioEl.play().catch(e=> log('Autoplay blocked, tap screen: ' + e.message, 'warn'));
@@ -280,6 +297,7 @@ function attemptCall(){
   call.on('close', ()=>{
     setStatus('listener', 'Sender disconnected. Retrying...', 'connecting');
     log('Call closed by sender.', 'warn');
+    document.getElementById('remoteAudio').srcObject = null;
     retryTimer = setTimeout(attemptCall, 3000);
   });
 
@@ -290,10 +308,10 @@ function attemptCall(){
 
   retryTimer = setTimeout(()=>{
     if(!document.getElementById('remoteAudio').srcObject){
-      log('No stream after 5s, retrying call...', 'warn');
+      log('No stream after 6s, retrying call...', 'warn');
       attemptCall();
     }
-  }, 5000);
+  }, 6000);
 }
 
 document.body.addEventListener('click', ()=>{
