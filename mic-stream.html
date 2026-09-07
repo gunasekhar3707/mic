@@ -54,31 +54,30 @@
     display:inline-block; background:#0d0f14; border:1px solid var(--border); border-radius:6px;
     padding:2px 8px; font-size:11px; color:var(--muted); margin-left:6px;
   }
-  #log{
+  .log{
     background:#0a0c10; border:1px solid var(--border); border-radius:10px; padding:10px;
     font-family:monospace; font-size:11px; line-height:1.6; max-height:220px; overflow-y:auto;
     margin-top:12px; white-space:pre-wrap; word-break:break-word;
   }
-  #log .l-err{color:#ff6b6b;}
-  #log .l-ok{color:#4ee08a;}
-  #log .l-info{color:#7aa2f7;}
-  #log .l-warn{color:#f5a623;}
+  .log .l-err{color:#ff6b6b;}
+  .log .l-ok{color:#4ee08a;}
+  .log .l-info{color:#7aa2f7;}
+  .log .l-warn{color:#f5a623;}
 </style>
 </head>
 <body>
 
 <h1>🎙️ Mic Stream</h1>
-<div class="sub">Live mic audio from one Android device to another, over any networks. Check the log panel on each device to see exactly what's happening if it won't connect.</div>
+<div class="sub">Live mic audio from one Android device to another, over any networks. Only the sender needs microphone permission.</div>
 
 <div class="card" id="setupCard">
   <h2>Room Code</h2>
-  <label>Use the SAME code on both devices, exactly (no extra spaces, case-sensitive).</label>
+  <label>Use the SAME code on both devices, exactly (case-sensitive, no extra spaces).</label>
   <input type="text" id="roomCode" value="guna-mic-room-7241">
   <div class="roles">
     <button class="btn-primary" onclick="startRole('sender')">📤 I'm the Sender (mic)</button>
     <button class="btn-primary" onclick="startRole('listener')">📥 I'm the Listener (speaker)</button>
   </div>
-  <div class="hint">Note: the Listener will also briefly ask for mic permission. It never actually sends your audio — this is only needed so the connection negotiates correctly. You can ignore/ deny it, but allowing it is more reliable.</div>
 </div>
 
 <!-- SENDER PANEL -->
@@ -87,16 +86,17 @@
   <button class="btn-mic" id="micBtn" onclick="toggleMic()">🎤 Turn Mic ON</button>
   <div class="status"><span class="dot" id="senderDot"></span><span id="senderStatus">Starting up...</span></div>
   <div class="hint">Leave this page open on the sending phone.</div>
-  <div id="senderLog"></div>
+  <div class="log" id="senderLog"></div>
 </div>
 
 <!-- LISTENER PANEL -->
 <div id="listenerPanel" class="card hidden">
   <h2>Listener <span class="badge" id="listenerRoomBadge"></span></h2>
-  <audio id="remoteAudio" autoplay playsinline></audio>
+  <audio id="remoteAudio" autoplay playsinline controls></audio>
+  <button class="btn-primary" id="playBtn" onclick="forcePlay()">🔊 Tap to Enable Sound</button>
   <div class="status"><span class="dot" id="listenerDot"></span><span id="listenerStatus">Starting up...</span></div>
-  <div class="hint">Tap anywhere on this page once if you don't hear audio.</div>
-  <div id="listenerLog"></div>
+  <div class="hint">No microphone permission needed on this device.</div>
+  <div class="log" id="listenerLog"></div>
 </div>
 
 <script>
@@ -110,24 +110,23 @@ const iceConfig = {
   ]
 };
 
-let peer = null;
-let localStream = null;        // sender's real mic stream
-let listenerLocalStream = null; // listener's muted placeholder stream (needed for negotiation)
+let peer = null;          // PeerJS used ONLY for signaling (data channel), not media
+let dataConn = null;
+let pc = null;            // raw RTCPeerConnection we control fully
+let localStream = null;
 let micEnabled = false;
 let role = null;
 let roomCode = '';
-let retryTimer = null;
 let logBoxId = null;
+let reconnectTimer = null;
 
 function log(msg, level){
   if(!logBoxId) return;
   const box = document.getElementById(logBoxId);
   if(!box) return;
-  const time = new Date().toLocaleTimeString();
-  const cls = level ? ('l-' + level) : '';
   const div = document.createElement('div');
-  div.className = cls;
-  div.textContent = '[' + time + '] ' + msg;
+  if(level) div.className = 'l-' + level;
+  div.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
@@ -143,7 +142,6 @@ function startRole(chosen){
   role = chosen;
   roomCode = document.getElementById('roomCode').value.trim();
   if(!roomCode){ alert('Enter a room code first.'); return; }
-
   document.getElementById('setupCard').classList.add('hidden');
 
   if(role === 'sender'){
@@ -159,7 +157,7 @@ function startRole(chosen){
   }
 }
 
-// ---------- SENDER ----------
+/* =======================  SENDER  ======================= */
 async function startSender(){
   setStatus('sender', 'Requesting microphone...', 'connecting');
   log('Requesting mic permission...', 'info');
@@ -178,140 +176,188 @@ async function startSender(){
   peer = new Peer(myId, { config: iceConfig, debug: 1 });
 
   peer.on('open', id=>{
-    setStatus('sender', 'Ready — waiting for listener to connect...', 'connecting');
-    log('Registered on signaling server as "' + id + '". Waiting for calls.', 'ok');
+    setStatus('sender', 'Ready — waiting for listener...', 'connecting');
+    log('Signaling online as "' + id + '".', 'ok');
   });
 
-  peer.on('call', call=>{
-    log('Incoming call from listener: ' + call.peer, 'ok');
-    call.answer(localStream);
-    setStatus('sender', 'Listener connected ✓', 'connected');
-    log('Answered call, sending mic stream.', 'ok');
-
-    call.peerConnection.oniceconnectionstatechange = ()=>{
-      log('ICE state: ' + call.peerConnection.iceConnectionState, 'info');
-    };
-    call.on('close', ()=>{
-      setStatus('sender', 'Listener disconnected. Waiting again...', 'connecting');
-      log('Call closed.', 'warn');
+  peer.on('connection', conn=>{
+    log('Listener signaling connected: ' + conn.peer, 'ok');
+    dataConn = conn;
+    conn.on('data', async data=>{
+      if(data.type === 'offer'){
+        log('Received offer from listener, building answer...', 'info');
+        await handleOfferAsSender(data.sdp, conn);
+      } else if(data.type === 'ice' && pc){
+        try{ await pc.addIceCandidate(data.candidate); }catch(e){}
+      }
+    });
+    conn.on('close', ()=>{
+      log('Listener signaling closed.', 'warn');
+      setStatus('sender', 'Listener disconnected. Waiting...', 'connecting');
     });
   });
 
   peer.on('disconnected', ()=>{
-    setStatus('sender', 'Connection lost, reconnecting...', 'connecting');
-    log('Disconnected from signaling server, reconnecting...', 'warn');
+    log('Signaling disconnected, reconnecting...', 'warn');
     setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
   });
 
   peer.on('error', err=>{
     log('PEER ERROR: ' + err.type + ' — ' + err.message, 'err');
     if(err.type === 'unavailable-id'){
-      setStatus('sender', 'Room code already in use by another sender. Change it on both devices.', 'error');
-    }else{
-      setStatus('sender', 'Connection issue: ' + err.type, 'error');
+      setStatus('sender', 'Room code in use by another sender. Change it on both devices.', 'error');
     }
   });
 }
 
+async function handleOfferAsSender(sdp, conn){
+  if(pc) { try{ pc.close(); }catch(e){} }
+  pc = new RTCPeerConnection(iceConfig);
+
+  // attach our mic track
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  pc.onicecandidate = e=>{
+    if(e.candidate) conn.send({ type:'ice', candidate: e.candidate });
+  };
+  pc.oniceconnectionstatechange = ()=>{
+    log('ICE state: ' + pc.iceConnectionState, 'info');
+    if(pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed'){
+      setStatus('sender', 'Listener connected ✓', 'connected');
+    }
+  };
+
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  conn.send({ type:'answer', sdp: pc.localDescription });
+  log('Answer sent, streaming mic.', 'ok');
+}
+
 function toggleMic(){
-  if(!localStream){ return; }
+  if(!localStream) return;
   micEnabled = !micEnabled;
   localStream.getAudioTracks().forEach(t => t.enabled = micEnabled);
   const btn = document.getElementById('micBtn');
   if(micEnabled){
     btn.textContent = '🔴 Mic ON — Tap to Mute';
     btn.classList.add('on');
-    log('Mic turned ON.', 'ok');
+    log('Mic ON.', 'ok');
   }else{
     btn.textContent = '🎤 Turn Mic ON';
     btn.classList.remove('on');
-    log('Mic turned OFF (muted).', 'info');
+    log('Mic muted.', 'info');
   }
 }
 
-// ---------- LISTENER ----------
-async function startListener(){
-  setStatus('listener', 'Preparing connection...', 'connecting');
-
-  // We request a real mic track (then immediately disable/mute it) purely so
-  // the WebRTC offer negotiates a proper two-way audio slot. Without a real
-  // track here, PeerJS builds an offer with no audio to receive on, and the
-  // sender's audio never arrives even though ICE connects fine.
-  try{
-    listenerLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    listenerLocalStream.getAudioTracks().forEach(t => t.enabled = false);
-    log('Local placeholder track ready (muted, not sent anywhere meaningful).', 'ok');
-  }catch(e){
-    log('Could not get local mic for negotiation (' + e.message + '). Will try with empty stream, may not work on all browsers.', 'warn');
-    listenerLocalStream = new MediaStream();
-  }
-
+/* =======================  LISTENER  ======================= */
+function startListener(){
   setStatus('listener', 'Connecting to relay...', 'connecting');
   const myId = roomCode + '-listener-' + Math.floor(Math.random()*100000);
   log('Registering as: ' + myId, 'info');
   peer = new Peer(myId, { config: iceConfig, debug: 1 });
 
-  peer.on('open', id=>{
-    setStatus('listener', 'Looking for sender...', 'connecting');
-    log('Registered as "' + id + '". Will call sender: ' + roomCode + '-sender', 'ok');
-    attemptCall();
+  peer.on('open', ()=>{
+    log('Signaling online. Connecting to sender...', 'ok');
+    connectToSender();
   });
 
   peer.on('disconnected', ()=>{
-    setStatus('listener', 'Connection lost, reconnecting...', 'connecting');
-    log('Disconnected from signaling server, reconnecting...', 'warn');
+    log('Signaling disconnected, reconnecting...', 'warn');
     setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
   });
 
   peer.on('error', err=>{
     log('PEER ERROR: ' + err.type + ' — ' + err.message, 'err');
-    setStatus('listener', 'Sender not found yet (' + err.type + '), retrying...', 'connecting');
+    setStatus('listener', 'Sender not available (' + err.type + '), retrying...', 'connecting');
+    scheduleRetry();
   });
 }
 
-function attemptCall(){
-  if(retryTimer) clearTimeout(retryTimer);
+function scheduleRetry(){
+  if(reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectToSender, 4000);
+}
+
+function connectToSender(){
+  if(reconnectTimer) clearTimeout(reconnectTimer);
   const targetId = roomCode + '-sender';
-  log('Calling ' + targetId + '...', 'info');
-  const call = peer.call(targetId, listenerLocalStream);
+  log('Opening signaling channel to ' + targetId + '...', 'info');
 
-  if(!call){
-    log('call() returned nothing — peer connection may not be ready.', 'err');
-    retryTimer = setTimeout(attemptCall, 3000);
-    return;
-  }
+  const conn = peer.connect(targetId, { reliable: true });
+  if(!conn){ scheduleRetry(); return; }
+  dataConn = conn;
 
-  call.peerConnection.oniceconnectionstatechange = ()=>{
-    log('ICE state: ' + call.peerConnection.iceConnectionState, 'info');
+  conn.on('open', async ()=>{
+    log('Signaling channel open. Creating receive-only offer...', 'ok');
+    await createReceiveOnlyOffer(conn);
+  });
+
+  conn.on('data', async data=>{
+    if(data.type === 'answer'){
+      log('Answer received from sender.', 'ok');
+      try{
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      }catch(e){ log('setRemoteDescription failed: ' + e.message, 'err'); }
+    } else if(data.type === 'ice' && pc){
+      try{ await pc.addIceCandidate(data.candidate); }catch(e){}
+    }
+  });
+
+  conn.on('close', ()=>{
+    log('Signaling channel closed. Retrying...', 'warn');
+    setStatus('listener', 'Disconnected. Retrying...', 'connecting');
+    scheduleRetry();
+  });
+
+  conn.on('error', e=>{
+    log('Signaling error: ' + e, 'err');
+    scheduleRetry();
+  });
+}
+
+async function createReceiveOnlyOffer(conn){
+  if(pc){ try{ pc.close(); }catch(e){} }
+  pc = new RTCPeerConnection(iceConfig);
+
+  // THE KEY PART: explicitly declare we want to RECEIVE audio.
+  // No getUserMedia, no mic permission needed on this device.
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+
+  pc.ontrack = e=>{
+    log('Audio track received!', 'ok');
+    const audioEl = document.getElementById('remoteAudio');
+    audioEl.srcObject = e.streams[0];
+    audioEl.play().catch(err=> log('Autoplay blocked — tap the sound button. ' + err.message, 'warn'));
+    setStatus('listener', 'Connected — receiving audio ✓', 'connected');
   };
 
-  call.on('stream', remoteStream=>{
-    if(retryTimer) clearTimeout(retryTimer);
-    const audioEl = document.getElementById('remoteAudio');
-    audioEl.srcObject = remoteStream;
-    audioEl.play().catch(e=> log('Autoplay blocked, tap screen: ' + e.message, 'warn'));
-    setStatus('listener', 'Connected — receiving audio ✓', 'connected');
-    log('Stream received from sender!', 'ok');
-  });
+  pc.onicecandidate = e=>{
+    if(e.candidate) conn.send({ type:'ice', candidate: e.candidate });
+  };
 
-  call.on('close', ()=>{
-    setStatus('listener', 'Sender disconnected. Retrying...', 'connecting');
-    log('Call closed by sender.', 'warn');
-    document.getElementById('remoteAudio').srcObject = null;
-    retryTimer = setTimeout(attemptCall, 3000);
-  });
-
-  call.on('error', e=>{
-    log('CALL ERROR: ' + e.message, 'err');
-    retryTimer = setTimeout(attemptCall, 3000);
-  });
-
-  retryTimer = setTimeout(()=>{
-    if(!document.getElementById('remoteAudio').srcObject){
-      log('No stream after 6s, retrying call...', 'warn');
-      attemptCall();
+  pc.oniceconnectionstatechange = ()=>{
+    log('ICE state: ' + pc.iceConnectionState, 'info');
+    if(pc.iceConnectionState === 'failed'){
+      log('ICE failed, retrying whole connection...', 'err');
+      scheduleRetry();
     }
-  }, 6000);
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  conn.send({ type:'offer', sdp: pc.localDescription });
+  log('Receive-only offer sent to sender.', 'info');
+}
+
+function forcePlay(){
+  const audioEl = document.getElementById('remoteAudio');
+  audioEl.muted = false;
+  audioEl.volume = 1.0;
+  audioEl.play().then(()=>{
+    log('Audio playback enabled.', 'ok');
+    document.getElementById('playBtn').textContent = '🔊 Sound Enabled';
+  }).catch(e=> log('Play failed: ' + e.message, 'err'));
 }
 
 document.body.addEventListener('click', ()=>{
