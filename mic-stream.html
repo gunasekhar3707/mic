@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mic Stream</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --accent:#4f8cff; --accent2:#ff5c5c;
+    --text:#e8eaed; --muted:#8a8f98; --border:#262a33;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--text); padding:20px; min-height:100vh;
+  }
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.5;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:18px; margin-bottom:16px;
+  }
+  .card h2{font-size:14px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
+  label{font-size:13px; color:var(--muted); display:block; margin-bottom:6px;}
+  input[type=text]{
+    width:100%; background:#0d0f14; color:var(--text); border:1px solid var(--border);
+    border-radius:10px; padding:10px; font-size:14px; margin-bottom:10px;
+  }
+  button{
+    border:none; border-radius:10px; padding:14px 16px; font-size:14px; font-weight:600;
+    cursor:pointer; width:100%; margin-top:8px;
+  }
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-mic{
+    background:var(--accent2); color:#fff; font-size:16px; padding:20px;
+    display:flex; align-items:center; justify-content:center; gap:10px;
+  }
+  .btn-mic.on{background:#2ecc71;}
+  .roles{display:flex; gap:8px;}
+  .roles button{flex:1;}
+  .status{
+    display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-top:10px;
+  }
+  .dot{width:9px; height:9px; border-radius:50%; background:#555; flex-shrink:0;}
+  .dot.connected{background:#2ecc71;}
+  .dot.connecting{background:#f5a623; animation:pulse 1s infinite;}
+  @keyframes pulse{50%{opacity:.3;}}
+  .hidden{display:none;}
+  audio{width:100%; margin-top:10px;}
+  .hint{font-size:12px; color:var(--muted); line-height:1.5; margin-top:8px;}
+  .badge{
+    display:inline-block; background:#0d0f14; border:1px solid var(--border); border-radius:6px;
+    padding:2px 8px; font-size:11px; color:var(--muted); margin-left:6px;
+  }
+</style>
+</head>
+<body>
+
+<h1>🎙️ Mic Stream</h1>
+<div class="sub">Live mic audio from one Android device to another, over any networks (not just same WiFi). Uses a free public relay to help the two devices find each other — no manual codes to exchange each time.</div>
+
+<div class="card" id="setupCard">
+  <h2>Room Code</h2>
+  <label>Use the SAME code on both devices. Default is pre-filled so you usually don't need to change it.</label>
+  <input type="text" id="roomCode" value="guna-mic-room-7241">
+  <div class="roles">
+    <button class="btn-primary" onclick="startRole('sender')">📤 I'm the Sender (mic)</button>
+    <button class="btn-primary" onclick="startRole('listener')">📥 I'm the Listener (speaker)</button>
+  </div>
+</div>
+
+<!-- SENDER PANEL -->
+<div id="senderPanel" class="card hidden">
+  <h2>Sender <span class="badge" id="senderRoomBadge"></span></h2>
+  <button class="btn-mic" id="micBtn" onclick="toggleMic()">🎤 Turn Mic ON</button>
+  <div class="status"><span class="dot" id="senderDot"></span><span id="senderStatus">Starting up...</span></div>
+  <div class="hint">Leave this page open on the sending phone. It will keep listening for the other device and auto-reconnect if the connection drops.</div>
+</div>
+
+<!-- LISTENER PANEL -->
+<div id="listenerPanel" class="card hidden">
+  <h2>Listener <span class="badge" id="listenerRoomBadge"></span></h2>
+  <audio id="remoteAudio" autoplay playsinline></audio>
+  <div class="status"><span class="dot" id="listenerDot"></span><span id="listenerStatus">Starting up...</span></div>
+  <div class="hint">Tap anywhere on this page once if you don't hear audio (Android autoplay rules require a tap to unlock sound).</div>
+</div>
+
+<script>
+const iceConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ]
+};
+
+let peer = null;
+let localStream = null;
+let micEnabled = false;
+let role = null;
+let roomCode = '';
+let retryTimer = null;
+
+function setStatus(who, text, state){
+  document.getElementById(who + 'Status').textContent = text;
+  const dot = document.getElementById(who + 'Dot');
+  dot.className = 'dot';
+  if(state) dot.classList.add(state);
+}
+
+function startRole(chosen){
+  role = chosen;
+  roomCode = document.getElementById('roomCode').value.trim();
+  if(!roomCode){ alert('Enter a room code first.'); return; }
+
+  document.getElementById('setupCard').classList.add('hidden');
+
+  if(role === 'sender'){
+    document.getElementById('senderPanel').classList.remove('hidden');
+    document.getElementById('senderRoomBadge').textContent = roomCode;
+    startSender();
+  }else{
+    document.getElementById('listenerPanel').classList.remove('hidden');
+    document.getElementById('listenerRoomBadge').textContent = roomCode;
+    startListener();
+  }
+}
+
+// ---------- SENDER ----------
+async function startSender(){
+  setStatus('sender', 'Requesting microphone...', 'connecting');
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    localStream.getAudioTracks().forEach(t => t.enabled = false); // start muted
+  }catch(e){
+    setStatus('sender', 'Microphone permission denied.', null);
+    return;
+  }
+
+  peer = new Peer(roomCode + '-sender', { config: iceConfig });
+
+  peer.on('open', ()=>{
+    setStatus('sender', 'Ready — waiting for listener to connect...', 'connecting');
+  });
+
+  peer.on('call', call=>{
+    call.answer(localStream);
+    setStatus('sender', 'Listener connected \u2713', 'connected');
+    call.on('close', ()=> setStatus('sender', 'Listener disconnected. Waiting again...', 'connecting'));
+  });
+
+  peer.on('disconnected', ()=>{
+    setStatus('sender', 'Connection lost, reconnecting...', 'connecting');
+    setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
+  });
+
+  peer.on('error', err=>{
+    console.warn('Peer error:', err);
+    if(err.type === 'unavailable-id'){
+      setStatus('sender', 'Another sender is already using this room code. Change the room code on both devices.', null);
+    }else{
+      setStatus('sender', 'Connection issue, retrying...', 'connecting');
+      setTimeout(()=>{ if(peer && !peer.destroyed) startSender(); }, 3000);
+    }
+  });
+}
+
+function toggleMic(){
+  if(!localStream){ return; }
+  micEnabled = !micEnabled;
+  localStream.getAudioTracks().forEach(t => t.enabled = micEnabled);
+  const btn = document.getElementById('micBtn');
+  if(micEnabled){
+    btn.textContent = '\uD83D\uDD34 Mic ON — Tap to Mute';
+    btn.classList.add('on');
+  }else{
+    btn.textContent = '\uD83C\uDF99\uFE0F Turn Mic ON';
+    btn.classList.remove('on');
+  }
+}
+
+// ---------- LISTENER ----------
+function startListener(){
+  setStatus('listener', 'Connecting to relay...', 'connecting');
+  peer = new Peer(roomCode + '-listener-' + Math.floor(Math.random()*100000), { config: iceConfig });
+
+  peer.on('open', ()=>{
+    setStatus('listener', 'Looking for sender...', 'connecting');
+    attemptCall();
+  });
+
+  peer.on('disconnected', ()=>{
+    setStatus('listener', 'Connection lost, reconnecting...', 'connecting');
+    setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
+  });
+
+  peer.on('error', err=>{
+    console.warn('Peer error:', err);
+    setStatus('listener', 'Sender not found yet, retrying...', 'connecting');
+  });
+}
+
+function attemptCall(){
+  if(retryTimer) clearTimeout(retryTimer);
+  const dummyStream = new MediaStream();
+  const call = peer.call(roomCode + '-sender', dummyStream);
+
+  call.on('stream', remoteStream=>{
+    const audioEl = document.getElementById('remoteAudio');
+    audioEl.srcObject = remoteStream;
+    audioEl.play().catch(()=>{});
+    setStatus('listener', 'Connected — receiving audio \u2713', 'connected');
+  });
+
+  call.on('close', ()=>{
+    setStatus('listener', 'Sender disconnected. Retrying...', 'connecting');
+    retryTimer = setTimeout(attemptCall, 3000);
+  });
+
+  call.on('error', ()=>{
+    retryTimer = setTimeout(attemptCall, 3000);
+  });
+
+  retryTimer = setTimeout(()=>{
+    if(!document.getElementById('remoteAudio').srcObject){
+      attemptCall();
+    }
+  }, 5000);
+}
+
+document.body.addEventListener('click', ()=>{
+  const audioEl = document.getElementById('remoteAudio');
+  if(audioEl && audioEl.srcObject) audioEl.play().catch(()=>{});
+}, { once: true });
+</script>
+
+</body>
+</html>
