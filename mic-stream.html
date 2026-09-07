@@ -45,6 +45,7 @@
   .dot{width:9px; height:9px; border-radius:50%; background:#555; flex-shrink:0;}
   .dot.connected{background:#2ecc71;}
   .dot.connecting{background:#f5a623; animation:pulse 1s infinite;}
+  .dot.error{background:#ff5c5c;}
   @keyframes pulse{50%{opacity:.3;}}
   .hidden{display:none;}
   audio{width:100%; margin-top:10px;}
@@ -53,16 +54,25 @@
     display:inline-block; background:#0d0f14; border:1px solid var(--border); border-radius:6px;
     padding:2px 8px; font-size:11px; color:var(--muted); margin-left:6px;
   }
+  #log{
+    background:#0a0c10; border:1px solid var(--border); border-radius:10px; padding:10px;
+    font-family:monospace; font-size:11px; line-height:1.6; max-height:220px; overflow-y:auto;
+    margin-top:12px; white-space:pre-wrap; word-break:break-word;
+  }
+  #log .l-err{color:#ff6b6b;}
+  #log .l-ok{color:#4ee08a;}
+  #log .l-info{color:#7aa2f7;}
+  #log .l-warn{color:#f5a623;}
 </style>
 </head>
 <body>
 
 <h1>🎙️ Mic Stream</h1>
-<div class="sub">Live mic audio from one Android device to another, over any networks (not just same WiFi). Uses a free public relay to help the two devices find each other — no manual codes to exchange each time.</div>
+<div class="sub">Live mic audio from one Android device to another, over any networks. Check the log panel on each device to see exactly what's happening if it won't connect.</div>
 
 <div class="card" id="setupCard">
   <h2>Room Code</h2>
-  <label>Use the SAME code on both devices. Default is pre-filled so you usually don't need to change it.</label>
+  <label>Use the SAME code on both devices, exactly (no extra spaces, case-sensitive).</label>
   <input type="text" id="roomCode" value="guna-mic-room-7241">
   <div class="roles">
     <button class="btn-primary" onclick="startRole('sender')">📤 I'm the Sender (mic)</button>
@@ -75,7 +85,8 @@
   <h2>Sender <span class="badge" id="senderRoomBadge"></span></h2>
   <button class="btn-mic" id="micBtn" onclick="toggleMic()">🎤 Turn Mic ON</button>
   <div class="status"><span class="dot" id="senderDot"></span><span id="senderStatus">Starting up...</span></div>
-  <div class="hint">Leave this page open on the sending phone. It will keep listening for the other device and auto-reconnect if the connection drops.</div>
+  <div class="hint">Leave this page open on the sending phone.</div>
+  <div id="senderLog"></div>
 </div>
 
 <!-- LISTENER PANEL -->
@@ -83,7 +94,8 @@
   <h2>Listener <span class="badge" id="listenerRoomBadge"></span></h2>
   <audio id="remoteAudio" autoplay playsinline></audio>
   <div class="status"><span class="dot" id="listenerDot"></span><span id="listenerStatus">Starting up...</span></div>
-  <div class="hint">Tap anywhere on this page once if you don't hear audio (Android autoplay rules require a tap to unlock sound).</div>
+  <div class="hint">Tap anywhere on this page once if you don't hear audio.</div>
+  <div id="listenerLog"></div>
 </div>
 
 <script>
@@ -103,6 +115,20 @@ let micEnabled = false;
 let role = null;
 let roomCode = '';
 let retryTimer = null;
+let logBoxId = null;
+
+function log(msg, level){
+  if(!logBoxId) return;
+  const box = document.getElementById(logBoxId);
+  if(!box) return;
+  const time = new Date().toLocaleTimeString();
+  const cls = level ? ('l-' + level) : '';
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = '[' + time + '] ' + msg;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
 
 function setStatus(who, text, state){
   document.getElementById(who + 'Status').textContent = text;
@@ -121,10 +147,12 @@ function startRole(chosen){
   if(role === 'sender'){
     document.getElementById('senderPanel').classList.remove('hidden');
     document.getElementById('senderRoomBadge').textContent = roomCode;
+    logBoxId = 'senderLog';
     startSender();
   }else{
     document.getElementById('listenerPanel').classList.remove('hidden');
     document.getElementById('listenerRoomBadge').textContent = roomCode;
+    logBoxId = 'listenerLog';
     startListener();
   }
 }
@@ -132,38 +160,53 @@ function startRole(chosen){
 // ---------- SENDER ----------
 async function startSender(){
   setStatus('sender', 'Requesting microphone...', 'connecting');
+  log('Requesting mic permission...', 'info');
   try{
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    localStream.getAudioTracks().forEach(t => t.enabled = false); // start muted
+    localStream.getAudioTracks().forEach(t => t.enabled = false);
+    log('Mic permission granted.', 'ok');
   }catch(e){
-    setStatus('sender', 'Microphone permission denied.', null);
+    setStatus('sender', 'Microphone permission denied.', 'error');
+    log('Mic permission FAILED: ' + e.message, 'err');
     return;
   }
 
-  peer = new Peer(roomCode + '-sender', { config: iceConfig });
+  const myId = roomCode + '-sender';
+  log('Registering as: ' + myId, 'info');
+  peer = new Peer(myId, { config: iceConfig, debug: 1 });
 
-  peer.on('open', ()=>{
+  peer.on('open', id=>{
     setStatus('sender', 'Ready — waiting for listener to connect...', 'connecting');
+    log('Registered on signaling server as "' + id + '". Waiting for calls.', 'ok');
   });
 
   peer.on('call', call=>{
+    log('Incoming call from listener: ' + call.peer, 'ok');
     call.answer(localStream);
-    setStatus('sender', 'Listener connected \u2713', 'connected');
-    call.on('close', ()=> setStatus('sender', 'Listener disconnected. Waiting again...', 'connecting'));
+    setStatus('sender', 'Listener connected ✓', 'connected');
+    log('Answered call, sending mic stream.', 'ok');
+
+    call.peerConnection.oniceconnectionstatechange = ()=>{
+      log('ICE state: ' + call.peerConnection.iceConnectionState, 'info');
+    };
+    call.on('close', ()=>{
+      setStatus('sender', 'Listener disconnected. Waiting again...', 'connecting');
+      log('Call closed.', 'warn');
+    });
   });
 
   peer.on('disconnected', ()=>{
     setStatus('sender', 'Connection lost, reconnecting...', 'connecting');
+    log('Disconnected from signaling server, reconnecting...', 'warn');
     setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
   });
 
   peer.on('error', err=>{
-    console.warn('Peer error:', err);
+    log('PEER ERROR: ' + err.type + ' — ' + err.message, 'err');
     if(err.type === 'unavailable-id'){
-      setStatus('sender', 'Another sender is already using this room code. Change the room code on both devices.', null);
+      setStatus('sender', 'Room code already in use by another sender. Change it on both devices.', 'error');
     }else{
-      setStatus('sender', 'Connection issue, retrying...', 'connecting');
-      setTimeout(()=>{ if(peer && !peer.destroyed) startSender(); }, 3000);
+      setStatus('sender', 'Connection issue: ' + err.type, 'error');
     }
   });
 }
@@ -174,58 +217,80 @@ function toggleMic(){
   localStream.getAudioTracks().forEach(t => t.enabled = micEnabled);
   const btn = document.getElementById('micBtn');
   if(micEnabled){
-    btn.textContent = '\uD83D\uDD34 Mic ON — Tap to Mute';
+    btn.textContent = '🔴 Mic ON — Tap to Mute';
     btn.classList.add('on');
+    log('Mic turned ON.', 'ok');
   }else{
-    btn.textContent = '\uD83C\uDF99\uFE0F Turn Mic ON';
+    btn.textContent = '🎤 Turn Mic ON';
     btn.classList.remove('on');
+    log('Mic turned OFF (muted).', 'info');
   }
 }
 
 // ---------- LISTENER ----------
 function startListener(){
   setStatus('listener', 'Connecting to relay...', 'connecting');
-  peer = new Peer(roomCode + '-listener-' + Math.floor(Math.random()*100000), { config: iceConfig });
+  const myId = roomCode + '-listener-' + Math.floor(Math.random()*100000);
+  log('Registering as: ' + myId, 'info');
+  peer = new Peer(myId, { config: iceConfig, debug: 1 });
 
-  peer.on('open', ()=>{
+  peer.on('open', id=>{
     setStatus('listener', 'Looking for sender...', 'connecting');
+    log('Registered as "' + id + '". Will call sender: ' + roomCode + '-sender', 'ok');
     attemptCall();
   });
 
   peer.on('disconnected', ()=>{
     setStatus('listener', 'Connection lost, reconnecting...', 'connecting');
+    log('Disconnected from signaling server, reconnecting...', 'warn');
     setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
   });
 
   peer.on('error', err=>{
-    console.warn('Peer error:', err);
-    setStatus('listener', 'Sender not found yet, retrying...', 'connecting');
+    log('PEER ERROR: ' + err.type + ' — ' + err.message, 'err');
+    setStatus('listener', 'Sender not found yet (' + err.type + '), retrying...', 'connecting');
   });
 }
 
 function attemptCall(){
   if(retryTimer) clearTimeout(retryTimer);
+  const targetId = roomCode + '-sender';
+  log('Calling ' + targetId + '...', 'info');
   const dummyStream = new MediaStream();
-  const call = peer.call(roomCode + '-sender', dummyStream);
+  const call = peer.call(targetId, dummyStream);
+
+  if(!call){
+    log('call() returned nothing — peer connection may not be ready.', 'err');
+    retryTimer = setTimeout(attemptCall, 3000);
+    return;
+  }
+
+  call.peerConnection.oniceconnectionstatechange = ()=>{
+    log('ICE state: ' + call.peerConnection.iceConnectionState, 'info');
+  };
 
   call.on('stream', remoteStream=>{
     const audioEl = document.getElementById('remoteAudio');
     audioEl.srcObject = remoteStream;
-    audioEl.play().catch(()=>{});
-    setStatus('listener', 'Connected — receiving audio \u2713', 'connected');
+    audioEl.play().catch(e=> log('Autoplay blocked, tap screen: ' + e.message, 'warn'));
+    setStatus('listener', 'Connected — receiving audio ✓', 'connected');
+    log('Stream received from sender!', 'ok');
   });
 
   call.on('close', ()=>{
     setStatus('listener', 'Sender disconnected. Retrying...', 'connecting');
+    log('Call closed by sender.', 'warn');
     retryTimer = setTimeout(attemptCall, 3000);
   });
 
-  call.on('error', ()=>{
+  call.on('error', e=>{
+    log('CALL ERROR: ' + e.message, 'err');
     retryTimer = setTimeout(attemptCall, 3000);
   });
 
   retryTimer = setTimeout(()=>{
     if(!document.getElementById('remoteAudio').srcObject){
+      log('No stream after 5s, retrying call...', 'warn');
       attemptCall();
     }
   }, 5000);
