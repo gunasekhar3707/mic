@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -67,7 +68,7 @@
       margin: 0 0 12px;
       color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: .05em;
     }
 
     label {
@@ -105,7 +106,7 @@
     }
 
     button:active {
-      transform: scale(0.98);
+      transform: scale(.98);
     }
 
     .btn-primary {
@@ -118,10 +119,6 @@
       color: #fff;
       font-size: 16px;
       padding: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
     }
 
     .btn-mic.on {
@@ -180,7 +177,7 @@
 
     @keyframes pulse {
       50% {
-        opacity: 0.3;
+        opacity: .3;
       }
     }
 
@@ -220,7 +217,7 @@
       font-family: monospace;
       font-size: 11px;
       line-height: 1.6;
-      max-height: 250px;
+      max-height: 280px;
       overflow-y: auto;
       margin-top: 12px;
       white-space: pre-wrap;
@@ -270,17 +267,21 @@
 
   <div class="sub">
     Live microphone audio from one Android device to another.
-    Both devices can be on different networks.
+    Sender publishes audio and Listener receives it.
   </div>
 
-  <!-- SETUP -->
+
+  <!-- =====================================================
+       SETUP
+       ===================================================== -->
+
   <div class="card" id="setupCard">
 
     <h2>Room Code</h2>
 
     <label>
       Use the SAME code on both devices.
-      It is case-sensitive.
+      Case-sensitive.
     </label>
 
     <input
@@ -308,14 +309,17 @@
     </div>
 
     <div class="hint">
-      <strong>Sender:</strong> microphone is used to send audio.<br>
+      <strong>Sender:</strong> microphone permission required.<br>
       <strong>Listener:</strong> microphone permission is NOT required.
     </div>
 
   </div>
 
 
-  <!-- SENDER -->
+  <!-- =====================================================
+       SENDER PANEL
+       ===================================================== -->
+
   <div
     id="senderPanel"
     class="card hidden"
@@ -338,19 +342,23 @@
     </button>
 
     <div class="status">
+
       <span
         class="dot"
         id="senderDot"
       ></span>
 
       <span id="senderStatus">
-        Starting up...
+        Starting...
       </span>
+
     </div>
 
     <div class="info-box">
-      Keep this page open on the phone that has the microphone.
-      The microphone will start <strong>ON</strong>.
+
+      Keep this page open on the microphone phone.
+      The microphone starts ON.
+
     </div>
 
     <div id="senderLog"></div>
@@ -358,7 +366,10 @@
   </div>
 
 
-  <!-- LISTENER -->
+  <!-- =====================================================
+       LISTENER PANEL
+       ===================================================== -->
+
   <div
     id="listenerPanel"
     class="card hidden"
@@ -387,19 +398,23 @@
     ></audio>
 
     <div class="status">
+
       <span
         class="dot"
         id="listenerDot"
       ></span>
 
       <span id="listenerStatus">
-        Starting up...
+        Starting...
       </span>
+
     </div>
 
     <div class="hint">
-      Tap <strong>START LISTENING</strong> once if Android blocks
-      automatic audio playback.
+
+      Tap START LISTENING once on Android.
+      This allows the browser to play remote audio.
+
     </div>
 
     <div id="listenerLog"></div>
@@ -410,10 +425,11 @@
 <script>
 
   // =========================================================
-  // WEBRTC CONFIG
+  // CONFIGURATION
   // =========================================================
 
   const iceConfig = {
+
     iceServers: [
 
       {
@@ -443,16 +459,19 @@
       }
 
     ]
+
   };
 
 
   // =========================================================
-  // GLOBAL VARIABLES
+  // GLOBAL STATE
   // =========================================================
 
   let peer = null;
 
   let localStream = null;
+
+  let peerConnection = null;
 
   let micEnabled = false;
 
@@ -460,17 +479,19 @@
 
   let roomCode = "";
 
-  let retryTimer = null;
-
   let logBoxId = null;
 
-  let currentCall = null;
+  let retryTimer = null;
+
+  let offerRetryTimer = null;
 
   let listeningStarted = false;
 
+  let remoteStream = null;
+
 
   // =========================================================
-  // LOGGING
+  // LOG
   // =========================================================
 
   function log(message, level) {
@@ -479,7 +500,8 @@
       return;
     }
 
-    const box = document.getElementById(logBoxId);
+    const box =
+      document.getElementById(logBoxId);
 
     if (!box) {
       return;
@@ -501,6 +523,7 @@
 
     box.scrollTop =
       box.scrollHeight;
+
   }
 
 
@@ -537,6 +560,7 @@
       }
 
     }
+
   }
 
 
@@ -638,9 +662,6 @@
         });
 
 
-      // IMPORTANT:
-      // Start microphone immediately.
-
       localStream
         .getAudioTracks()
         .forEach(track => {
@@ -653,15 +674,16 @@
       micEnabled = true;
 
 
-      const micButton =
+      const button =
         document.getElementById(
           "micBtn"
         );
 
-      micButton.textContent =
+
+      button.textContent =
         "🔴 Mic ON — Tap to Mute";
 
-      micButton.classList.add("on");
+      button.classList.add("on");
 
 
       log(
@@ -684,7 +706,8 @@
       );
 
       log(
-        "MIC ERROR: " + error.message,
+        "MIC ERROR: " +
+        error.message,
         "err"
       );
 
@@ -694,31 +717,29 @@
 
 
     // =====================================================
-    // CREATE PEER
+    // PEERJS SIGNALING
     // =====================================================
 
-    const myId =
+    const senderId =
       roomCode + "-sender";
 
 
     log(
-      "Registering as: " + myId,
+      "Creating signaling peer: " +
+      senderId,
       "info"
     );
 
 
-    peer = new Peer(
-      myId,
-      {
-        config: iceConfig,
-        debug: 2
-      }
-    );
+    peer =
+      new Peer(
+        senderId,
+        {
+          config: iceConfig,
+          debug: 2
+        }
+      );
 
-
-    // =====================================================
-    // PEER OPEN
-    // =====================================================
 
     peer.on("open", id => {
 
@@ -728,214 +749,378 @@
         "connecting"
       );
 
+
       log(
-        'Registered as "' +
-        id +
-        '".',
+        "Signaling connected ✓",
         "ok"
       );
 
+
       log(
-        "Waiting for incoming listener call...",
+        "Sender ID: " +
+        id,
+        "info"
+      );
+
+
+      log(
+        "Waiting for listener...",
         "info"
       );
 
     });
 
 
-    // =====================================================
-    // INCOMING CALL
-    // =====================================================
-
-    peer.on("call", call => {
-
-      currentCall = call;
-
-
-      log(
-        "Incoming call from listener: " +
-        call.peer,
-        "ok"
-      );
-
-
-      // Answer with microphone stream.
-
-      call.answer(localStream);
-
-
-      setStatus(
-        "sender",
-        "Listener connected ✓",
-        "connected"
-      );
-
-
-      log(
-        "Answered listener call.",
-        "ok"
-      );
-
-
-      log(
-        "Sending microphone stream...",
-        "ok"
-      );
-
-
-      // ===================================================
-      // ICE
-      // ===================================================
-
-      if (call.peerConnection) {
-
-        call.peerConnection
-          .oniceconnectionstatechange =
-          () => {
-
-            log(
-              "ICE state: " +
-              call.peerConnection
-                .iceConnectionState,
-              "info"
-            );
-
-          };
-
-
-        call.peerConnection
-          .onconnectionstatechange =
-          () => {
-
-            log(
-              "Connection state: " +
-              call.peerConnection
-                .connectionState,
-              "info"
-            );
-
-          };
-
-      }
-
-
-      // ===================================================
-      // CLOSE
-      // ===================================================
-
-      call.on("close", () => {
-
-        currentCall = null;
-
-        setStatus(
-          "sender",
-          "Listener disconnected. Waiting...",
-          "connecting"
-        );
+    /*
+     * The listener will send us a PeerJS data
+     * connection containing its SDP offer.
+     */
+    peer.on(
+      "connection",
+      connection => {
 
         log(
-          "Call closed.",
+          "Listener signaling connection received.",
+          "ok"
+        );
+
+
+        connection.on(
+          "data",
+          async data => {
+
+            if (
+              data &&
+              data.type === "offer"
+            ) {
+
+              log(
+                "SDP OFFER received from listener.",
+                "ok"
+              );
+
+
+              await handleListenerOffer(
+                connection,
+                data.offer
+              );
+
+            }
+
+          }
+        );
+
+
+        connection.on(
+          "error",
+          error => {
+
+            log(
+              "Signaling error: " +
+              error.message,
+              "err"
+            );
+
+          }
+        );
+
+      }
+    );
+
+
+    peer.on(
+      "disconnected",
+      () => {
+
+        log(
+          "Signaling server disconnected.",
           "warn"
         );
 
-      });
+
+        setStatus(
+          "sender",
+          "Reconnecting signaling...",
+          "connecting"
+        );
 
 
-      // ===================================================
-      // ERROR
-      // ===================================================
+        setTimeout(() => {
 
-      call.on("error", error => {
+          if (
+            peer &&
+            !peer.destroyed
+          ) {
+
+            peer.reconnect();
+
+          }
+
+        }, 1500);
+
+      }
+    );
+
+
+    peer.on(
+      "error",
+      error => {
 
         log(
-          "CALL ERROR: " +
+          "PEER ERROR: " +
+          error.type +
+          " — " +
           error.message,
           "err"
         );
 
-      });
-
-    });
-
-
-    // =====================================================
-    // DISCONNECTED
-    // =====================================================
-
-    peer.on("disconnected", () => {
-
-      setStatus(
-        "sender",
-        "Connection lost. Reconnecting...",
-        "connecting"
-      );
-
-      log(
-        "Disconnected from PeerJS server.",
-        "warn"
-      );
-
-
-      setTimeout(() => {
 
         if (
-          peer &&
-          !peer.destroyed
+          error.type ===
+          "unavailable-id"
         ) {
 
-          peer.reconnect();
+          setStatus(
+            "sender",
+            "Room already has a sender. Change room code.",
+            "error"
+          );
 
         }
 
-      }, 1500);
-
-    });
-
-
-    // =====================================================
-    // ERROR
-    // =====================================================
-
-    peer.on("error", error => {
-
-      log(
-        "PEER ERROR: " +
-        error.type +
-        " — " +
-        error.message,
-        "err"
-      );
-
-
-      if (
-        error.type ===
-        "unavailable-id"
-      ) {
-
-        setStatus(
-          "sender",
-          "Room code already in use. Change the room code.",
-          "error"
-        );
-
-      } else {
-
-        setStatus(
-          "sender",
-          "Connection issue: " +
-          error.type,
-          "error"
-        );
-
       }
-
-    });
+    );
 
   }
 
 
   // =========================================================
-  // TOGGLE MICROPHONE
+  // HANDLE LISTENER OFFER
+  // =========================================================
+
+  async function handleListenerOffer(
+    signalingConnection,
+    offer
+  ) {
+
+    try {
+
+      closePeerConnection();
+
+
+      peerConnection =
+        new RTCPeerConnection(
+          iceConfig
+        );
+
+
+      log(
+        "Creating WebRTC connection...",
+        "info"
+      );
+
+
+      // ===================================================
+      // ADD MICROPHONE
+      // ===================================================
+
+      if (localStream) {
+
+        localStream
+          .getTracks()
+          .forEach(track => {
+
+            peerConnection.addTrack(
+              track,
+              localStream
+            );
+
+          });
+
+
+        log(
+          "Microphone track added to WebRTC.",
+          "ok"
+        );
+
+      }
+
+
+      // ===================================================
+      // ICE CANDIDATES
+      // ===================================================
+
+      peerConnection.onicecandidate =
+        event => {
+
+          if (
+            event.candidate &&
+            signalingConnection.open
+          ) {
+
+            signalingConnection.send({
+
+              type: "candidate",
+
+              candidate:
+                event.candidate
+
+            });
+
+          }
+
+        };
+
+
+      // ===================================================
+      // CONNECTION STATE
+      // ===================================================
+
+      peerConnection.onconnectionstatechange =
+        () => {
+
+          const state =
+            peerConnection.connectionState;
+
+
+          log(
+            "WebRTC connection: " +
+            state,
+            "info"
+          );
+
+
+          if (
+            state === "connected"
+          ) {
+
+            setStatus(
+              "sender",
+              "Listener connected ✓",
+              "connected"
+            );
+
+            log(
+              "WebRTC audio connection established ✓",
+              "ok"
+            );
+
+          }
+
+
+          if (
+            state === "failed"
+          ) {
+
+            setStatus(
+              "sender",
+              "WebRTC connection failed.",
+              "error"
+            );
+
+          }
+
+        };
+
+
+      // ===================================================
+      // ICE STATE
+      // ===================================================
+
+      peerConnection.oniceconnectionstatechange =
+        () => {
+
+          log(
+            "ICE state: " +
+            peerConnection.iceConnectionState,
+            "info"
+          );
+
+        };
+
+
+      // ===================================================
+      // SET REMOTE OFFER
+      // ===================================================
+
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(offer)
+      );
+
+
+      log(
+        "Remote SDP offer applied.",
+        "ok"
+      );
+
+
+      // ===================================================
+      // CREATE ANSWER
+      // ===================================================
+
+      const answer =
+        await peerConnection.createAnswer();
+
+
+      await peerConnection.setLocalDescription(
+        answer
+      );
+
+
+      log(
+        "SDP answer created.",
+        "ok"
+      );
+
+
+      // ===================================================
+      // SEND ANSWER
+      // ===================================================
+
+      signalingConnection.send({
+
+        type: "answer",
+
+        answer:
+          peerConnection.localDescription
+
+      });
+
+
+      log(
+        "SDP answer sent to listener ✓",
+        "ok"
+      );
+
+
+      setStatus(
+        "sender",
+        "Connecting audio...",
+        "connecting"
+      );
+
+    } catch (error) {
+
+      log(
+        "WEBRTC ERROR: " +
+        error.message,
+        "err"
+      );
+
+
+      setStatus(
+        "sender",
+        "WebRTC setup failed.",
+        "error"
+      );
+
+    }
+
+  }
+
+
+  // =========================================================
+  // MICROPHONE TOGGLE
   // =========================================================
 
   function toggleMic() {
@@ -972,8 +1157,9 @@
 
       button.classList.add("on");
 
+
       log(
-        "Microphone turned ON.",
+        "Microphone ON.",
         "ok"
       );
 
@@ -983,6 +1169,7 @@
         "🎤 Turn Mic ON";
 
       button.classList.remove("on");
+
 
       log(
         "Microphone muted.",
@@ -998,22 +1185,22 @@
   // LISTENER
   // =========================================================
 
-  async function startListener() {
+  function startListener() {
 
     setStatus(
       "listener",
-      "Connecting...",
+      "Connecting to signaling...",
       "connecting"
     );
 
 
     log(
-      "Listener does NOT need microphone permission.",
+      "Listener does not request microphone permission.",
       "info"
     );
 
 
-    const myId =
+    const listenerId =
       roomCode +
       "-listener-" +
       Math.floor(
@@ -1022,149 +1209,129 @@
 
 
     log(
-      "Registering as: " +
-      myId,
+      "Creating listener signaling peer...",
       "info"
     );
 
 
-    peer = new Peer(
-      myId,
-      {
-        config: iceConfig,
-        debug: 2
+    peer =
+      new Peer(
+        listenerId,
+        {
+          config: iceConfig,
+          debug: 2
+        }
+      );
+
+
+    peer.on(
+      "open",
+      id => {
+
+        setStatus(
+          "listener",
+          "Looking for sender...",
+          "connecting"
+        );
+
+
+        log(
+          "Signaling connected ✓",
+          "ok"
+        );
+
+
+        log(
+          "Listener ID: " +
+          id,
+          "info"
+        );
+
+
+        connectToSender();
+
       }
     );
 
 
-    // =====================================================
-    // PEER OPEN
-    // =====================================================
+    peer.on(
+      "disconnected",
+      () => {
 
-    peer.on("open", id => {
+        log(
+          "Signaling server disconnected.",
+          "warn"
+        );
 
-      setStatus(
-        "listener",
-        "Looking for sender...",
-        "connecting"
-      );
-
-
-      log(
-        'Registered as "' +
-        id +
-        '".',
-        "ok"
-      );
-
-
-      log(
-        "Will call sender: " +
-        roomCode +
-        "-sender",
-        "info"
-      );
-
-
-      attemptCall();
-
-    });
-
-
-    // =====================================================
-    // DISCONNECTED
-    // =====================================================
-
-    peer.on("disconnected", () => {
-
-      setStatus(
-        "listener",
-        "Connection lost. Reconnecting...",
-        "connecting"
-      );
-
-
-      log(
-        "Disconnected from PeerJS server.",
-        "warn"
-      );
-
-
-      setTimeout(() => {
-
-        if (
-          peer &&
-          !peer.destroyed
-        ) {
-
-          peer.reconnect();
-
-        }
-
-      }, 1500);
-
-    });
-
-
-    // =====================================================
-    // ERROR
-    // =====================================================
-
-    peer.on("error", error => {
-
-      log(
-        "PEER ERROR: " +
-        error.type +
-        " — " +
-        error.message,
-        "err"
-      );
-
-
-      if (
-        error.type ===
-        "peer-unavailable"
-      ) {
 
         setStatus(
           "listener",
-          "Sender not online yet. Retrying...",
+          "Reconnecting signaling...",
           "connecting"
         );
 
-        retryTimer =
-          setTimeout(
-            attemptCall,
-            3000
-          );
 
-      } else {
+        setTimeout(() => {
 
-        setStatus(
-          "listener",
-          "Connection issue: " +
-          error.type,
-          "error"
-        );
+          if (
+            peer &&
+            !peer.destroyed
+          ) {
 
-        retryTimer =
-          setTimeout(
-            attemptCall,
-            3000
-          );
+            peer.reconnect();
+
+          }
+
+        }, 1500);
 
       }
+    );
 
-    });
+
+    peer.on(
+      "error",
+      error => {
+
+        log(
+          "PEER ERROR: " +
+          error.type +
+          " — " +
+          error.message,
+          "err"
+        );
+
+
+        if (
+          error.type ===
+          "peer-unavailable"
+        ) {
+
+          setStatus(
+            "listener",
+            "Sender not online yet. Retrying...",
+            "connecting"
+          );
+
+
+          retryTimer =
+            setTimeout(
+              connectToSender,
+              3000
+            );
+
+        }
+
+      }
+    );
 
   }
 
 
   // =========================================================
-  // CALL SENDER
+  // CONNECT LISTENER TO SENDER
   // =========================================================
 
-  function attemptCall() {
+  function connectToSender() {
 
     if (
       !peer ||
@@ -1174,7 +1341,7 @@
 
       retryTimer =
         setTimeout(
-          attemptCall,
+          connectToSender,
           3000
         );
 
@@ -1183,135 +1350,246 @@
     }
 
 
-    if (retryTimer) {
-
-      clearTimeout(
-        retryTimer
-      );
-
-      retryTimer = null;
-
-    }
-
-
-    const targetId =
+    const senderId =
       roomCode + "-sender";
 
 
     log(
-      "Calling " +
-      targetId +
-      "...",
+      "Connecting to sender signaling: " +
+      senderId,
       "info"
     );
 
 
-    /*
-     * We use an empty MediaStream.
-     *
-     * The sender's microphone stream is sent
-     * when the sender answers this call.
-     */
-
-    const emptyStream =
-      new MediaStream();
-
-
-    const call =
-      peer.call(
-        targetId,
-        emptyStream
+    const connection =
+      peer.connect(
+        senderId,
+        {
+          reliable: true
+        }
       );
 
 
-    if (!call) {
-
-      log(
-        "peer.call() returned nothing.",
-        "err"
-      );
-
-
-      retryTimer =
-        setTimeout(
-          attemptCall,
-          3000
-        );
-
-      return;
-
-    }
-
-
-    currentCall = call;
-
-
-    log(
-      "Call created successfully.",
-      "ok"
-    );
-
-
-    // =====================================================
-    // REMOTE STREAM
-    // =====================================================
-
-    call.on(
-      "stream",
-      remoteStream => {
+    connection.on(
+      "open",
+      async () => {
 
         log(
-          "REMOTE AUDIO STREAM RECEIVED ✓",
+          "Connected to sender signaling ✓",
           "ok"
         );
 
 
-        const audio =
-          document.getElementById(
-            "remoteAudio"
+        await createListenerOffer(
+          connection
+        );
+
+      }
+    );
+
+
+    connection.on(
+      "data",
+      async data => {
+
+        if (
+          data.type === "answer"
+        ) {
+
+          log(
+            "SDP ANSWER received from sender.",
+            "ok"
           );
 
 
-        // Remove previous stream.
+          await handleSenderAnswer(
+            data.answer
+          );
 
-        audio.srcObject = null;
-
-
-        // Attach new stream.
-
-        audio.srcObject =
-          remoteStream;
+        }
 
 
-        audio.muted = false;
+        if (
+          data.type === "candidate"
+        ) {
 
-        audio.volume = 1.0;
+          await addRemoteCandidate(
+            data.candidate
+          );
+
+        }
+
+      }
+    );
+
+
+    connection.on(
+      "close",
+      () => {
+
+        log(
+          "Signaling connection closed.",
+          "warn"
+        );
+
+
+        closePeerConnection();
 
 
         setStatus(
           "listener",
-          "Connected — audio received ✓",
-          "connected"
+          "Sender disconnected. Retrying...",
+          "connecting"
         );
 
 
-        // Try playing automatically.
+        retryTimer =
+          setTimeout(
+            connectToSender,
+            3000
+          );
 
-        const playPromise =
-          audio.play();
+      }
+    );
 
 
-        if (playPromise) {
+    connection.on(
+      "error",
+      error => {
 
-          playPromise
+        log(
+          "Signaling connection error: " +
+          error.message,
+          "err"
+        );
+
+      }
+    );
+
+  }
+
+
+  // =========================================================
+  // CREATE LISTENER OFFER
+  // =========================================================
+
+  async function createListenerOffer(
+    signalingConnection
+  ) {
+
+    try {
+
+      closePeerConnection();
+
+
+      peerConnection =
+        new RTCPeerConnection(
+          iceConfig
+        );
+
+
+      // ===================================================
+      // RECEIVE AUDIO
+      // ===================================================
+
+      peerConnection.addTransceiver(
+        "audio",
+        {
+          direction: "recvonly"
+        }
+      );
+
+
+      log(
+        "Audio receiver created.",
+        "ok"
+      );
+
+
+      // ===================================================
+      // REMOTE AUDIO
+      // ===================================================
+
+      peerConnection.ontrack =
+        event => {
+
+          log(
+            "REMOTE AUDIO TRACK RECEIVED ✓",
+            "ok"
+          );
+
+
+          if (
+            event.track.kind !==
+            "audio"
+          ) {
+
+            return;
+
+          }
+
+
+          remoteStream =
+            event.streams &&
+            event.streams.length
+              ? event.streams[0]
+              : new MediaStream([
+                  event.track
+                ]);
+
+
+          const audio =
+            document.getElementById(
+              "remoteAudio"
+            );
+
+
+          audio.srcObject =
+            remoteStream;
+
+
+          audio.muted = false;
+
+          audio.volume = 1.0;
+
+
+          setStatus(
+            "listener",
+            "Audio received — starting playback...",
+            "connected"
+          );
+
+
+          log(
+            "Remote audio stream attached.",
+            "ok"
+          );
+
+
+          audio.play()
             .then(() => {
+
+              listeningStarted = true;
+
+
+              const button =
+                document.getElementById(
+                  "listenBtn"
+                );
+
+
+              button.textContent =
+                "🔊 LISTENING";
+
+              button.classList.add(
+                "started"
+              );
+
 
               log(
                 "Audio playback started ✓",
                 "ok"
               );
-
-              listeningStarted = true;
 
             })
             .catch(error => {
@@ -1322,49 +1600,70 @@
                 "warn"
               );
 
+
               setStatus(
                 "listener",
-                "Connected — tap START LISTENING",
+                "Audio received — tap START LISTENING",
                 "connected"
               );
 
             });
 
-        }
-
-      }
-    );
+        };
 
 
-    // =====================================================
-    // ICE STATE
-    // =====================================================
+      // ===================================================
+      // ICE
+      // ===================================================
 
-    if (call.peerConnection) {
+      peerConnection.onicecandidate =
+        event => {
 
-      call.peerConnection
-        .oniceconnectionstatechange =
+          if (
+            event.candidate &&
+            signalingConnection.open
+          ) {
+
+            signalingConnection.send({
+
+              type: "candidate",
+
+              candidate:
+                event.candidate
+
+            });
+
+          }
+
+        };
+
+
+      // ===================================================
+      // ICE STATE
+      // ===================================================
+
+      peerConnection.oniceconnectionstatechange =
         () => {
-
-          const state =
-            call.peerConnection
-              .iceConnectionState;
-
 
           log(
             "ICE state: " +
-            state,
+            peerConnection
+              .iceConnectionState,
             "info"
           );
 
 
           if (
-            state === "connected" ||
-            state === "completed"
+            peerConnection
+              .iceConnectionState ===
+            "connected" ||
+            peerConnection
+              .iceConnectionState ===
+            "completed"
           ) {
 
             log(
-              "WebRTC network connection established ✓",
+              "ICE connection established ✓",
               "ok"
             );
 
@@ -1372,7 +1671,9 @@
 
 
           if (
-            state === "failed"
+            peerConnection
+              .iceConnectionState ===
+            "failed"
           ) {
 
             log(
@@ -1389,17 +1690,16 @@
       // CONNECTION STATE
       // ===================================================
 
-      call.peerConnection
-        .onconnectionstatechange =
+      peerConnection.onconnectionstatechange =
         () => {
 
           const state =
-            call.peerConnection
+            peerConnection
               .connectionState;
 
 
           log(
-            "Connection state: " +
+            "WebRTC connection: " +
             state,
             "info"
           );
@@ -1409,9 +1709,23 @@
             state === "connected"
           ) {
 
-            log(
-              "Peer connection established ✓",
-              "ok"
+            setStatus(
+              "listener",
+              "WebRTC connected — waiting for audio...",
+              "connected"
+            );
+
+          }
+
+
+          if (
+            state === "failed"
+          ) {
+
+            setStatus(
+              "listener",
+              "WebRTC connection failed.",
+              "error"
             );
 
           }
@@ -1420,136 +1734,54 @@
 
 
       // ===================================================
-      // REMOTE TRACK
+      // CREATE OFFER
       // ===================================================
 
-      call.peerConnection
-        .ontrack =
-        event => {
-
-          log(
-            "Remote " +
-            event.track.kind +
-            " track received ✓",
-            "ok"
-          );
+      const offer =
+        await peerConnection.createOffer();
 
 
-          if (
-            event.track.kind !==
-            "audio"
-          ) {
-
-            return;
-
-          }
-
-
-          const audio =
-            document.getElementById(
-              "remoteAudio"
-            );
-
-
-          let stream;
-
-
-          if (
-            event.streams &&
-            event.streams.length > 0
-          ) {
-
-            stream =
-              event.streams[0];
-
-          } else {
-
-            stream =
-              new MediaStream([
-                event.track
-              ]);
-
-          }
-
-
-          audio.srcObject =
-            stream;
-
-          audio.muted = false;
-
-          audio.volume = 1.0;
-
-
-          audio.play()
-            .then(() => {
-
-              log(
-                "Remote audio track playing ✓",
-                "ok"
-              );
-
-            })
-            .catch(error => {
-
-              log(
-                "Audio play blocked: " +
-                error.message,
-                "warn"
-              );
-
-            });
-
-        };
-
-    }
-
-
-    // =====================================================
-    // CALL CLOSE
-    // =====================================================
-
-    call.on("close", () => {
-
-      currentCall = null;
+      await peerConnection.setLocalDescription(
+        offer
+      );
 
 
       log(
-        "Call closed by sender.",
-        "warn"
+        "SDP offer created.",
+        "ok"
+      );
+
+
+      // ===================================================
+      // SEND OFFER
+      // ===================================================
+
+      signalingConnection.send({
+
+        type: "offer",
+
+        offer:
+          peerConnection.localDescription
+
+      });
+
+
+      log(
+        "SDP offer sent to sender ✓",
+        "ok"
       );
 
 
       setStatus(
         "listener",
-        "Sender disconnected. Retrying...",
+        "Waiting for sender answer...",
         "connecting"
       );
 
-
-      document
-        .getElementById(
-          "remoteAudio"
-        )
-        .srcObject = null;
-
-
-      retryTimer =
-        setTimeout(
-          attemptCall,
-          3000
-        );
-
-    });
-
-
-    // =====================================================
-    // CALL ERROR
-    // =====================================================
-
-    call.on("error", error => {
+    } catch (error) {
 
       log(
-        "CALL ERROR: " +
+        "OFFER ERROR: " +
         error.message,
         "err"
       );
@@ -1557,54 +1789,107 @@
 
       retryTimer =
         setTimeout(
-          attemptCall,
+          connectToSender,
           3000
         );
 
-    });
-
-
-    // =====================================================
-    // STREAM TIMEOUT
-    // =====================================================
-
-    retryTimer =
-      setTimeout(() => {
-
-        const audio =
-          document.getElementById(
-            "remoteAudio"
-          );
-
-
-        if (
-          !audio.srcObject
-        ) {
-
-          log(
-            "No remote audio after 8 seconds. Retrying...",
-            "warn"
-          );
-
-
-          try {
-
-            call.close();
-
-          } catch (e) {}
-
-
-          attemptCall();
-
-        }
-
-      }, 8000);
+    }
 
   }
 
 
   // =========================================================
-  // START LISTENING BUTTON
+  // HANDLE SENDER ANSWER
+  // =========================================================
+
+  async function handleSenderAnswer(
+    answer
+  ) {
+
+    try {
+
+      if (!peerConnection) {
+
+        log(
+          "No WebRTC connection exists for answer.",
+          "err"
+        );
+
+        return;
+
+      }
+
+
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(answer)
+      );
+
+
+      log(
+        "Sender SDP answer applied ✓",
+        "ok"
+      );
+
+
+      setStatus(
+        "listener",
+        "Establishing audio connection...",
+        "connecting"
+      );
+
+    } catch (error) {
+
+      log(
+        "ANSWER ERROR: " +
+        error.message,
+        "err"
+      );
+
+    }
+
+  }
+
+
+  // =========================================================
+  // REMOTE ICE CANDIDATE
+  // =========================================================
+
+  async function addRemoteCandidate(
+    candidate
+  ) {
+
+    try {
+
+      if (!peerConnection) {
+        return;
+      }
+
+
+      await peerConnection.addIceCandidate(
+        new RTCIceCandidate(candidate)
+      );
+
+
+      log(
+        "ICE candidate added.",
+        "info"
+      );
+
+    } catch (error) {
+
+      log(
+        "ICE candidate error: " +
+        error.message,
+        "warn"
+      );
+
+    }
+
+  }
+
+
+  // =========================================================
+  // START LISTENING
   // =========================================================
 
   function startListening() {
@@ -1618,7 +1903,7 @@
     if (!audio.srcObject) {
 
       log(
-        "No remote audio stream available yet.",
+        "Remote audio has not arrived yet.",
         "warn"
       );
 
@@ -1668,7 +1953,7 @@
 
 
         log(
-          "Audio playback started by user.",
+          "Audio playback started by user ✓",
           "ok"
         );
 
@@ -1676,7 +1961,7 @@
       .catch(error => {
 
         log(
-          "Could not start audio: " +
+          "Audio playback error: " +
           error.message,
           "err"
         );
@@ -1687,7 +1972,28 @@
 
 
   // =========================================================
-  // PAGE TAP FALLBACK
+  // CLOSE WEBRTC CONNECTION
+  // =========================================================
+
+  function closePeerConnection() {
+
+    if (peerConnection) {
+
+      try {
+        peerConnection.close();
+      } catch (e) {}
+
+      peerConnection = null;
+
+    }
+
+    remoteStream = null;
+
+  }
+
+
+  // =========================================================
+  // USER INTERACTION FALLBACK
   // =========================================================
 
   document.body.addEventListener(
@@ -1716,6 +2022,21 @@
 
             listeningStarted = true;
 
+
+            const button =
+              document.getElementById(
+                "listenBtn"
+              );
+
+
+            button.textContent =
+              "🔊 LISTENING";
+
+            button.classList.add(
+              "started"
+            );
+
+
             log(
               "Audio started after user interaction ✓",
               "ok"
@@ -1733,3 +2054,4 @@
 
 </body>
 </html>
+```
