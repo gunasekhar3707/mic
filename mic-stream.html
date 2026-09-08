@@ -1,474 +1,1734 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mic Stream</title>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<style>
-  :root{
-    --bg:#0f1115; --card:#171a21; --accent:#4f8cff; --accent2:#ff5c5c;
-    --text:#e8eaed; --muted:#8a8f98; --border:#262a33;
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    background:var(--bg); color:var(--text); padding:20px; min-height:100vh;
-  }
-  h1{font-size:20px; margin:0 0 4px;}
-  .sub{color:var(--muted); font-size:13px; margin-bottom:16px; line-height:1.5;}
-  .notice{
-    background:#1a2233; border:1px solid #2d4470; border-radius:10px; padding:12px;
-    font-size:12px; line-height:1.6; color:#a8c4f0; margin-bottom:16px;
-  }
-  .warn-box{
-    background:#2a2113; border:1px solid #6b5320; border-radius:10px; padding:12px;
-    font-size:12px; line-height:1.6; color:#f0d9a8; margin-top:12px;
-  }
-  .card{
-    background:var(--card); border:1px solid var(--border); border-radius:14px;
-    padding:18px; margin-bottom:16px;
-  }
-  .card h2{font-size:14px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
-  label{font-size:13px; color:var(--muted); display:block; margin-bottom:6px;}
-  input[type=text]{
-    width:100%; background:#0d0f14; color:var(--text); border:1px solid var(--border);
-    border-radius:10px; padding:10px; font-size:14px; margin-bottom:10px;
-  }
-  button{
-    border:none; border-radius:10px; padding:14px 16px; font-size:14px; font-weight:600;
-    cursor:pointer; width:100%; margin-top:8px;
-  }
-  .btn-primary{background:var(--accent); color:#fff;}
-  .btn-sec{background:#2a2e38; color:var(--text);}
-  .roles{display:flex; gap:8px;}
-  .roles button{flex:1;}
-  .mic-state{
-    border-radius:12px; padding:18px; text-align:center; font-size:17px; font-weight:700;
-    margin-bottom:4px; border:2px solid;
-  }
-  .mic-state.idle{background:#1c1f27; border-color:#333842; color:var(--muted);}
-  .mic-state.live{background:#12341f; border-color:#2ecc71; color:#4ee08a;}
-  .status{
-    display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-top:10px;
-  }
-  .dot{width:9px; height:9px; border-radius:50%; background:#555; flex-shrink:0;}
-  .dot.connected{background:#2ecc71;}
-  .dot.connecting{background:#f5a623; animation:pulse 1s infinite;}
-  .dot.error{background:#ff5c5c;}
-  @keyframes pulse{50%{opacity:.3;}}
-  .hidden{display:none;}
-  audio{width:100%; margin-top:10px;}
-  .hint{font-size:12px; color:var(--muted); line-height:1.5; margin-top:8px;}
-  .badge{
-    display:inline-block; background:#0d0f14; border:1px solid var(--border); border-radius:6px;
-    padding:2px 8px; font-size:11px; color:var(--muted); margin-left:6px;
-  }
-  .log{
-    background:#0a0c10; border:1px solid var(--border); border-radius:10px; padding:10px;
-    font-family:monospace; font-size:11px; line-height:1.6; max-height:240px; overflow-y:auto;
-    margin-top:12px; white-space:pre-wrap; word-break:break-word;
-  }
-  .log .l-err{color:#ff6b6b;}
-  .log .l-ok{color:#4ee08a;}
-  .log .l-info{color:#7aa2f7;}
-  .log .l-warn{color:#f5a623;}
-</style>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  >
+
+  <title>Mic Stream</title>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #171a21;
+      --accent: #4f8cff;
+      --accent2: #ff5c5c;
+      --green: #2ecc71;
+      --text: #e8eaed;
+      --muted: #8a8f98;
+      --border: #262a33;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0 0 4px;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .card h2 {
+      font-size: 14px;
+      margin: 0 0 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    label {
+      font-size: 13px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: #0d0f14;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 14px;
+      margin-bottom: 10px;
+      outline: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-mic {
+      background: var(--accent2);
+      color: #fff;
+      font-size: 16px;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .btn-mic.on {
+      background: var(--green);
+    }
+
+    .btn-listen {
+      background: var(--green);
+      color: #fff;
+      font-size: 16px;
+      padding: 20px;
+    }
+
+    .btn-listen.started {
+      background: #555;
+    }
+
+    .roles {
+      display: flex;
+      gap: 8px;
+    }
+
+    .roles button {
+      flex: 1;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #555;
+      flex-shrink: 0;
+    }
+
+    .dot.connected {
+      background: var(--green);
+    }
+
+    .dot.connecting {
+      background: #f5a623;
+      animation: pulse 1s infinite;
+    }
+
+    .dot.error {
+      background: var(--accent2);
+    }
+
+    @keyframes pulse {
+      50% {
+        opacity: 0.3;
+      }
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    audio {
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #0d0f14;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 6px;
+    }
+
+    #senderLog,
+    #listenerLog {
+      background: #0a0c10;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      max-height: 250px;
+      overflow-y: auto;
+      margin-top: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    #senderLog .l-err,
+    #listenerLog .l-err {
+      color: #ff6b6b;
+    }
+
+    #senderLog .l-ok,
+    #listenerLog .l-ok {
+      color: #4ee08a;
+    }
+
+    #senderLog .l-info,
+    #listenerLog .l-info {
+      color: #7aa2f7;
+    }
+
+    #senderLog .l-warn,
+    #listenerLog .l-warn {
+      color: #f5a623;
+    }
+
+    .info-box {
+      background: #0d0f14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-top: 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
+    .info-box strong {
+      color: var(--text);
+    }
+  </style>
 </head>
+
 <body>
 
-<h1>🎙️ Mic Stream</h1>
-<div class="sub">Live mic audio from one Android device to another, over any networks.</div>
+  <h1>🎙️ Mic Stream</h1>
 
-<div class="notice">
-  Start the <b>Sender</b> once and leave it running. The mic activates automatically whenever the Listener connects, and goes idle when it disconnects. Permission is asked only the first time.
-</div>
-
-<div class="card" id="setupCard">
-  <h2>Room Code</h2>
-  <label>Use the SAME code on both devices (case-sensitive).</label>
-  <input type="text" id="roomCode" value="guna1">
-  <div class="roles">
-    <button class="btn-primary" onclick="startRole('sender')">📤 Sender (mic)</button>
-    <button class="btn-primary" onclick="startRole('listener')">📥 Listener (speaker)</button>
+  <div class="sub">
+    Live microphone audio from one Android device to another.
+    Both devices can be on different networks.
   </div>
-</div>
 
-<!-- SENDER PANEL -->
-<div id="senderPanel" class="card hidden">
-  <h2>Sender <span class="badge" id="senderRoomBadge"></span></h2>
-  <div class="mic-state idle" id="micState">🎤 MIC IDLE — waiting for listener</div>
-  <div class="status"><span class="dot" id="senderDot"></span><span id="senderStatus">Starting up...</span></div>
-  <button class="btn-sec" onclick="toggleManualMute()" id="muteBtn">🔇 Force Mute (override)</button>
-  <div class="warn-box">
-    To keep running with the screen off: keep this tab in the foreground, disable battery optimisation for Chrome (Settings → Apps → Chrome → Battery → Unrestricted), and avoid switching apps. Android may still throttle a long-backgrounded tab.
+  <!-- SETUP -->
+  <div class="card" id="setupCard">
+
+    <h2>Room Code</h2>
+
+    <label>
+      Use the SAME code on both devices.
+      It is case-sensitive.
+    </label>
+
+    <input
+      type="text"
+      id="roomCode"
+      value="guna-mic-room-7241"
+    >
+
+    <div class="roles">
+
+      <button
+        class="btn-primary"
+        onclick="startRole('sender')"
+      >
+        📤 I'm the Sender
+      </button>
+
+      <button
+        class="btn-primary"
+        onclick="startRole('listener')"
+      >
+        📥 I'm the Listener
+      </button>
+
+    </div>
+
+    <div class="hint">
+      <strong>Sender:</strong> microphone is used to send audio.<br>
+      <strong>Listener:</strong> microphone permission is NOT required.
+    </div>
+
   </div>
-  <div class="log" id="senderLog"></div>
-</div>
 
-<!-- LISTENER PANEL -->
-<div id="listenerPanel" class="card hidden">
-  <h2>Listener <span class="badge" id="listenerRoomBadge"></span></h2>
-  <audio id="remoteAudio" autoplay playsinline controls></audio>
-  <button class="btn-primary" id="playBtn" onclick="forcePlay()">🔊 Tap to Enable Sound</button>
-  <button class="btn-sec" onclick="manualReconnect()">🔄 Reconnect Now</button>
-  <div class="status"><span class="dot" id="listenerDot"></span><span id="listenerStatus">Starting up...</span></div>
-  <div class="hint">No microphone permission needed on this device.</div>
-  <div class="log" id="listenerLog"></div>
-</div>
+
+  <!-- SENDER -->
+  <div
+    id="senderPanel"
+    class="card hidden"
+  >
+
+    <h2>
+      Sender
+      <span
+        class="badge"
+        id="senderRoomBadge"
+      ></span>
+    </h2>
+
+    <button
+      class="btn-mic"
+      id="micBtn"
+      onclick="toggleMic()"
+    >
+      🎤 Turn Mic ON
+    </button>
+
+    <div class="status">
+      <span
+        class="dot"
+        id="senderDot"
+      ></span>
+
+      <span id="senderStatus">
+        Starting up...
+      </span>
+    </div>
+
+    <div class="info-box">
+      Keep this page open on the phone that has the microphone.
+      The microphone will start <strong>ON</strong>.
+    </div>
+
+    <div id="senderLog"></div>
+
+  </div>
+
+
+  <!-- LISTENER -->
+  <div
+    id="listenerPanel"
+    class="card hidden"
+  >
+
+    <h2>
+      Listener
+      <span
+        class="badge"
+        id="listenerRoomBadge"
+      ></span>
+    </h2>
+
+    <button
+      class="btn-listen"
+      id="listenBtn"
+      onclick="startListening()"
+    >
+      🔊 START LISTENING
+    </button>
+
+    <audio
+      id="remoteAudio"
+      playsinline
+      controls
+    ></audio>
+
+    <div class="status">
+      <span
+        class="dot"
+        id="listenerDot"
+      ></span>
+
+      <span id="listenerStatus">
+        Starting up...
+      </span>
+    </div>
+
+    <div class="hint">
+      Tap <strong>START LISTENING</strong> once if Android blocks
+      automatic audio playback.
+    </div>
+
+    <div id="listenerLog"></div>
+
+  </div>
+
 
 <script>
-const iceConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-  ]
-};
 
-let peer = null, dataConn = null, pc = null;
-let localStream = null;
-let role = null, roomCode = '', logBoxId = null;
-let retryTimer = null, attempt = 0, gotStream = false;
-let manualMute = false;
-let wakeLock = null;
-let keepAliveCtx = null;
+  // =========================================================
+  // WEBRTC CONFIG
+  // =========================================================
 
-function log(msg, level){
-  if(!logBoxId) return;
-  const box = document.getElementById(logBoxId);
-  if(!box) return;
-  const div = document.createElement('div');
-  if(level) div.className = 'l-' + level;
-  div.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
-  while(box.children.length > 200) box.removeChild(box.firstChild);
-}
+  const iceConfig = {
+    iceServers: [
 
-function setStatus(who, text, state){
-  document.getElementById(who + 'Status').textContent = text;
-  const dot = document.getElementById(who + 'Dot');
-  dot.className = 'dot';
-  if(state) dot.classList.add(state);
-}
+      {
+        urls: "stun:stun.l.google.com:19302"
+      },
 
-/* ---------- keep the page alive in background ---------- */
-async function requestWakeLock(){
-  try{
-    if('wakeLock' in navigator){
-      wakeLock = await navigator.wakeLock.request('screen');
-      log('Screen wake lock acquired.', 'ok');
-      wakeLock.addEventListener('release', ()=> log('Wake lock released.', 'warn'));
-    }else{
-      log('Wake Lock API not supported on this browser.', 'warn');
-    }
-  }catch(e){ log('Wake lock failed: ' + e.message, 'warn'); }
-}
+      {
+        urls: "stun:stun1.l.google.com:19302"
+      },
 
-// Silent audio keeps Chrome treating this tab as "playing media",
-// which greatly reduces the chance of it being frozen in background.
-function startKeepAlive(){
-  try{
-    keepAliveCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = keepAliveCtx.createOscillator();
-    const gain = keepAliveCtx.createGain();
-    gain.gain.value = 0.0001; // effectively silent
-    osc.connect(gain);
-    gain.connect(keepAliveCtx.destination);
-    osc.start();
-    log('Background keep-alive audio started.', 'ok');
-  }catch(e){ log('Keep-alive failed: ' + e.message, 'warn'); }
-}
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
 
-document.addEventListener('visibilitychange', async ()=>{
-  if(document.visibilityState === 'visible'){
-    if(role === 'sender' && !wakeLock) await requestWakeLock();
-    if(keepAliveCtx && keepAliveCtx.state === 'suspended') keepAliveCtx.resume();
-    log('Page visible again.', 'info');
-  }else{
-    log('Page went to background — connection kept alive.', 'warn');
-  }
-});
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject"
+      },
 
-function startRole(chosen){
-  role = chosen;
-  roomCode = document.getElementById('roomCode').value.trim();
-  if(!roomCode){ alert('Enter a room code first.'); return; }
-  document.getElementById('setupCard').classList.add('hidden');
-
-  if(role === 'sender'){
-    document.getElementById('senderPanel').classList.remove('hidden');
-    document.getElementById('senderRoomBadge').textContent = roomCode;
-    logBoxId = 'senderLog';
-    requestWakeLock();
-    startKeepAlive();
-    startSender();
-  }else{
-    document.getElementById('listenerPanel').classList.remove('hidden');
-    document.getElementById('listenerRoomBadge').textContent = roomCode;
-    logBoxId = 'listenerLog';
-    requestWakeLock();
-    startListener();
-  }
-}
-
-/* =========================  SENDER  ========================= */
-function setMicUI(live){
-  const el = document.getElementById('micState');
-  if(live){
-    el.className = 'mic-state live';
-    el.textContent = '🔴 MIC LIVE — streaming to listener';
-  }else{
-    el.className = 'mic-state idle';
-    el.textContent = manualMute ? '🔇 FORCE MUTED' : '🎤 MIC IDLE — waiting for listener';
-  }
-}
-
-function setMicActive(active){
-  if(!localStream) return;
-  const on = active && !manualMute;
-  localStream.getAudioTracks().forEach(t => t.enabled = on);
-  setMicUI(on);
-  log(on ? 'Mic AUTO-ACTIVATED (listener online).' : 'Mic idle.', on ? 'ok' : 'info');
-}
-
-function toggleManualMute(){
-  manualMute = !manualMute;
-  document.getElementById('muteBtn').textContent = manualMute ? '🔊 Unmute' : '🔇 Force Mute (override)';
-  const listenerOnline = !!(pc && (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed'));
-  setMicActive(listenerOnline);
-}
-
-async function startSender(){
-  setStatus('sender', 'Requesting microphone (first time only)...', 'connecting');
-  log('Requesting mic permission...', 'info');
-  try{
-    // Acquired once and held for the whole session; Chrome remembers the
-    // grant for this HTTPS origin so it won't prompt again next time.
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    });
-    localStream.getAudioTracks().forEach(t => t.enabled = false); // idle until listener joins
-    log('Mic permission granted and held.', 'ok');
-    setMicUI(false);
-  }catch(e){
-    setStatus('sender', 'Microphone permission denied.', 'error');
-    log('Mic permission FAILED: ' + e.message, 'err');
-    return;
-  }
-  registerSenderPeer();
-}
-
-function registerSenderPeer(){
-  const myId = roomCode + '-sender';
-  log('Registering as: ' + myId, 'info');
-  peer = new Peer(myId, { config: iceConfig, debug: 1 });
-
-  peer.on('open', id=>{
-    setStatus('sender', 'Online — waiting for listener...', 'connecting');
-    log('Signaling online as "' + id + '".', 'ok');
-  });
-
-  peer.on('connection', conn=>{
-    log('Listener connected: ' + conn.peer, 'ok');
-    setStatus('sender', 'Listener found, negotiating...', 'connecting');
-    dataConn = conn;
-
-    conn.on('data', async data=>{
-      if(data.type === 'offer'){
-        log('Offer received, answering...', 'info');
-        await handleOfferAsSender(data.sdp, conn);
-      } else if(data.type === 'ice' && pc){
-        try{ await pc.addIceCandidate(data.candidate); }catch(e){}
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject"
       }
+
+    ]
+  };
+
+
+  // =========================================================
+  // GLOBAL VARIABLES
+  // =========================================================
+
+  let peer = null;
+
+  let localStream = null;
+
+  let micEnabled = false;
+
+  let role = null;
+
+  let roomCode = "";
+
+  let retryTimer = null;
+
+  let logBoxId = null;
+
+  let currentCall = null;
+
+  let listeningStarted = false;
+
+
+  // =========================================================
+  // LOGGING
+  // =========================================================
+
+  function log(message, level) {
+
+    if (!logBoxId) {
+      return;
+    }
+
+    const box = document.getElementById(logBoxId);
+
+    if (!box) {
+      return;
+    }
+
+    const time =
+      new Date().toLocaleTimeString();
+
+    const div =
+      document.createElement("div");
+
+    div.className =
+      level ? "l-" + level : "";
+
+    div.textContent =
+      "[" + time + "] " + message;
+
+    box.appendChild(div);
+
+    box.scrollTop =
+      box.scrollHeight;
+  }
+
+
+  // =========================================================
+  // STATUS
+  // =========================================================
+
+  function setStatus(
+    who,
+    text,
+    state
+  ) {
+
+    const status =
+      document.getElementById(
+        who + "Status"
+      );
+
+    const dot =
+      document.getElementById(
+        who + "Dot"
+      );
+
+    if (status) {
+      status.textContent = text;
+    }
+
+    if (dot) {
+
+      dot.className = "dot";
+
+      if (state) {
+        dot.classList.add(state);
+      }
+
+    }
+  }
+
+
+  // =========================================================
+  // START ROLE
+  // =========================================================
+
+  function startRole(chosen) {
+
+    role = chosen;
+
+    roomCode =
+      document
+        .getElementById("roomCode")
+        .value
+        .trim();
+
+    if (!roomCode) {
+
+      alert(
+        "Enter a room code first."
+      );
+
+      return;
+    }
+
+
+    document
+      .getElementById("setupCard")
+      .classList.add("hidden");
+
+
+    if (role === "sender") {
+
+      document
+        .getElementById("senderPanel")
+        .classList.remove("hidden");
+
+      document
+        .getElementById("senderRoomBadge")
+        .textContent = roomCode;
+
+      logBoxId = "senderLog";
+
+      startSender();
+
+    } else {
+
+      document
+        .getElementById("listenerPanel")
+        .classList.remove("hidden");
+
+      document
+        .getElementById("listenerRoomBadge")
+        .textContent = roomCode;
+
+      logBoxId = "listenerLog";
+
+      startListener();
+
+    }
+
+  }
+
+
+  // =========================================================
+  // SENDER
+  // =========================================================
+
+  async function startSender() {
+
+    setStatus(
+      "sender",
+      "Requesting microphone...",
+      "connecting"
+    );
+
+    log(
+      "Requesting microphone permission...",
+      "info"
+    );
+
+
+    try {
+
+      localStream =
+        await navigator.mediaDevices.getUserMedia({
+
+          audio: {
+
+            echoCancellation: true,
+
+            noiseSuppression: true,
+
+            autoGainControl: true
+
+          }
+
+        });
+
+
+      // IMPORTANT:
+      // Start microphone immediately.
+
+      localStream
+        .getAudioTracks()
+        .forEach(track => {
+
+          track.enabled = true;
+
+        });
+
+
+      micEnabled = true;
+
+
+      const micButton =
+        document.getElementById(
+          "micBtn"
+        );
+
+      micButton.textContent =
+        "🔴 Mic ON — Tap to Mute";
+
+      micButton.classList.add("on");
+
+
+      log(
+        "Microphone permission granted.",
+        "ok"
+      );
+
+      log(
+        "Microphone is ON.",
+        "ok"
+      );
+
+
+    } catch (error) {
+
+      setStatus(
+        "sender",
+        "Microphone permission denied.",
+        "error"
+      );
+
+      log(
+        "MIC ERROR: " + error.message,
+        "err"
+      );
+
+      return;
+
+    }
+
+
+    // =====================================================
+    // CREATE PEER
+    // =====================================================
+
+    const myId =
+      roomCode + "-sender";
+
+
+    log(
+      "Registering as: " + myId,
+      "info"
+    );
+
+
+    peer = new Peer(
+      myId,
+      {
+        config: iceConfig,
+        debug: 2
+      }
+    );
+
+
+    // =====================================================
+    // PEER OPEN
+    // =====================================================
+
+    peer.on("open", id => {
+
+      setStatus(
+        "sender",
+        "Ready — waiting for listener...",
+        "connecting"
+      );
+
+      log(
+        'Registered as "' +
+        id +
+        '".',
+        "ok"
+      );
+
+      log(
+        "Waiting for incoming listener call...",
+        "info"
+      );
+
     });
 
-    conn.on('close', ()=>{
-      log('Listener disconnected.', 'warn');
-      setStatus('sender', 'Online — waiting for listener...', 'connecting');
-      setMicActive(false);
-      if(pc){ try{ pc.close(); }catch(e){} pc = null; }
+
+    // =====================================================
+    // INCOMING CALL
+    // =====================================================
+
+    peer.on("call", call => {
+
+      currentCall = call;
+
+
+      log(
+        "Incoming call from listener: " +
+        call.peer,
+        "ok"
+      );
+
+
+      // Answer with microphone stream.
+
+      call.answer(localStream);
+
+
+      setStatus(
+        "sender",
+        "Listener connected ✓",
+        "connected"
+      );
+
+
+      log(
+        "Answered listener call.",
+        "ok"
+      );
+
+
+      log(
+        "Sending microphone stream...",
+        "ok"
+      );
+
+
+      // ===================================================
+      // ICE
+      // ===================================================
+
+      if (call.peerConnection) {
+
+        call.peerConnection
+          .oniceconnectionstatechange =
+          () => {
+
+            log(
+              "ICE state: " +
+              call.peerConnection
+                .iceConnectionState,
+              "info"
+            );
+
+          };
+
+
+        call.peerConnection
+          .onconnectionstatechange =
+          () => {
+
+            log(
+              "Connection state: " +
+              call.peerConnection
+                .connectionState,
+              "info"
+            );
+
+          };
+
+      }
+
+
+      // ===================================================
+      // CLOSE
+      // ===================================================
+
+      call.on("close", () => {
+
+        currentCall = null;
+
+        setStatus(
+          "sender",
+          "Listener disconnected. Waiting...",
+          "connecting"
+        );
+
+        log(
+          "Call closed.",
+          "warn"
+        );
+
+      });
+
+
+      // ===================================================
+      // ERROR
+      // ===================================================
+
+      call.on("error", error => {
+
+        log(
+          "CALL ERROR: " +
+          error.message,
+          "err"
+        );
+
+      });
+
     });
-  });
 
-  peer.on('disconnected', ()=>{
-    log('Signaling dropped, reconnecting...', 'warn');
-    setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
-  });
 
-  peer.on('error', err=>{
-    log('PEER ERROR: ' + err.type + ' — ' + err.message, 'err');
-    if(err.type === 'unavailable-id'){
-      setStatus('sender', 'Room code in use. Wait 30s and reload.', 'error');
+    // =====================================================
+    // DISCONNECTED
+    // =====================================================
+
+    peer.on("disconnected", () => {
+
+      setStatus(
+        "sender",
+        "Connection lost. Reconnecting...",
+        "connecting"
+      );
+
+      log(
+        "Disconnected from PeerJS server.",
+        "warn"
+      );
+
+
+      setTimeout(() => {
+
+        if (
+          peer &&
+          !peer.destroyed
+        ) {
+
+          peer.reconnect();
+
+        }
+
+      }, 1500);
+
+    });
+
+
+    // =====================================================
+    // ERROR
+    // =====================================================
+
+    peer.on("error", error => {
+
+      log(
+        "PEER ERROR: " +
+        error.type +
+        " — " +
+        error.message,
+        "err"
+      );
+
+
+      if (
+        error.type ===
+        "unavailable-id"
+      ) {
+
+        setStatus(
+          "sender",
+          "Room code already in use. Change the room code.",
+          "error"
+        );
+
+      } else {
+
+        setStatus(
+          "sender",
+          "Connection issue: " +
+          error.type,
+          "error"
+        );
+
+      }
+
+    });
+
+  }
+
+
+  // =========================================================
+  // TOGGLE MICROPHONE
+  // =========================================================
+
+  function toggleMic() {
+
+    if (!localStream) {
+      return;
     }
-  });
-}
 
-async function handleOfferAsSender(sdp, conn){
-  if(pc){ try{ pc.close(); }catch(e){} pc = null; }
-  pc = new RTCPeerConnection(iceConfig);
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-  pc.onicecandidate = e=>{ if(e.candidate && conn.open) conn.send({ type:'ice', candidate:e.candidate }); };
+    micEnabled =
+      !micEnabled;
 
-  pc.oniceconnectionstatechange = ()=>{
-    const s = pc.iceConnectionState;
-    log('ICE state: ' + s, s === 'failed' ? 'err' : 'info');
-    if(s === 'connected' || s === 'completed'){
-      setStatus('sender', 'Listener connected ✓', 'connected');
-      setMicActive(true);   // <-- mic turns on automatically here
+
+    localStream
+      .getAudioTracks()
+      .forEach(track => {
+
+        track.enabled =
+          micEnabled;
+
+      });
+
+
+    const button =
+      document.getElementById(
+        "micBtn"
+      );
+
+
+    if (micEnabled) {
+
+      button.textContent =
+        "🔴 Mic ON — Tap to Mute";
+
+      button.classList.add("on");
+
+      log(
+        "Microphone turned ON.",
+        "ok"
+      );
+
+    } else {
+
+      button.textContent =
+        "🎤 Turn Mic ON";
+
+      button.classList.remove("on");
+
+      log(
+        "Microphone muted.",
+        "info"
+      );
+
     }
-    if(s === 'failed' || s === 'disconnected' || s === 'closed'){
-      setStatus('sender', 'Listener gone. Waiting...', 'connecting');
-      setMicActive(false);
+
+  }
+
+
+  // =========================================================
+  // LISTENER
+  // =========================================================
+
+  async function startListener() {
+
+    setStatus(
+      "listener",
+      "Connecting...",
+      "connecting"
+    );
+
+
+    log(
+      "Listener does NOT need microphone permission.",
+      "info"
+    );
+
+
+    const myId =
+      roomCode +
+      "-listener-" +
+      Math.floor(
+        Math.random() * 100000
+      );
+
+
+    log(
+      "Registering as: " +
+      myId,
+      "info"
+    );
+
+
+    peer = new Peer(
+      myId,
+      {
+        config: iceConfig,
+        debug: 2
+      }
+    );
+
+
+    // =====================================================
+    // PEER OPEN
+    // =====================================================
+
+    peer.on("open", id => {
+
+      setStatus(
+        "listener",
+        "Looking for sender...",
+        "connecting"
+      );
+
+
+      log(
+        'Registered as "' +
+        id +
+        '".',
+        "ok"
+      );
+
+
+      log(
+        "Will call sender: " +
+        roomCode +
+        "-sender",
+        "info"
+      );
+
+
+      attemptCall();
+
+    });
+
+
+    // =====================================================
+    // DISCONNECTED
+    // =====================================================
+
+    peer.on("disconnected", () => {
+
+      setStatus(
+        "listener",
+        "Connection lost. Reconnecting...",
+        "connecting"
+      );
+
+
+      log(
+        "Disconnected from PeerJS server.",
+        "warn"
+      );
+
+
+      setTimeout(() => {
+
+        if (
+          peer &&
+          !peer.destroyed
+        ) {
+
+          peer.reconnect();
+
+        }
+
+      }, 1500);
+
+    });
+
+
+    // =====================================================
+    // ERROR
+    // =====================================================
+
+    peer.on("error", error => {
+
+      log(
+        "PEER ERROR: " +
+        error.type +
+        " — " +
+        error.message,
+        "err"
+      );
+
+
+      if (
+        error.type ===
+        "peer-unavailable"
+      ) {
+
+        setStatus(
+          "listener",
+          "Sender not online yet. Retrying...",
+          "connecting"
+        );
+
+        retryTimer =
+          setTimeout(
+            attemptCall,
+            3000
+          );
+
+      } else {
+
+        setStatus(
+          "listener",
+          "Connection issue: " +
+          error.type,
+          "error"
+        );
+
+        retryTimer =
+          setTimeout(
+            attemptCall,
+            3000
+          );
+
+      }
+
+    });
+
+  }
+
+
+  // =========================================================
+  // CALL SENDER
+  // =========================================================
+
+  function attemptCall() {
+
+    if (
+      !peer ||
+      peer.destroyed ||
+      !peer.open
+    ) {
+
+      retryTimer =
+        setTimeout(
+          attemptCall,
+          3000
+        );
+
+      return;
+
     }
-  };
 
-  try{
-    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    conn.send({ type:'answer', sdp: pc.localDescription });
-    log('Answer sent.', 'ok');
-  }catch(e){ log('Negotiation failed: ' + e.message, 'err'); }
-}
 
-/* =========================  LISTENER  ========================= */
-function startListener(){
-  setStatus('listener', 'Connecting to relay...', 'connecting');
-  const myId = roomCode + '-listener-' + Math.floor(Math.random()*1000000);
-  log('Registering as: ' + myId, 'info');
-  peer = new Peer(myId, { config: iceConfig, debug: 1 });
+    if (retryTimer) {
 
-  peer.on('open', ()=>{ log('Signaling online.', 'ok'); connectToSender(); });
+      clearTimeout(
+        retryTimer
+      );
 
-  peer.on('disconnected', ()=>{
-    log('Signaling dropped, reconnecting...', 'warn');
-    setTimeout(()=>{ if(peer && !peer.destroyed) peer.reconnect(); }, 1500);
-  });
+      retryTimer = null;
 
-  peer.on('error', err=>{
-    if(err.type === 'peer-unavailable'){
-      setStatus('listener', 'Sender not online yet — retrying...', 'connecting');
-      log('Sender offline. Start the sender phone first.', 'warn');
-    }else{
-      log('PEER ERROR: ' + err.type + ' — ' + err.message, 'err');
     }
-    scheduleRetry();
-  });
-}
 
-function teardown(){
-  if(retryTimer){ clearTimeout(retryTimer); retryTimer = null; }
-  if(pc){ try{ pc.close(); }catch(e){} pc = null; }
-  if(dataConn){ try{ dataConn.close(); }catch(e){} dataConn = null; }
-}
 
-function scheduleRetry(){
-  if(retryTimer) clearTimeout(retryTimer);
-  retryTimer = setTimeout(connectToSender, Math.min(3000 + attempt*1000, 8000));
-}
+    const targetId =
+      roomCode + "-sender";
 
-function manualReconnect(){
-  log('Manual reconnect.', 'info');
-  attempt = 0; gotStream = false;
-  teardown(); connectToSender();
-}
 
-function connectToSender(){
-  teardown();
-  attempt++; gotStream = false;
-  const targetId = roomCode + '-sender';
-  log('Attempt #' + attempt + ' → ' + targetId, 'info');
-  setStatus('listener', 'Connecting to sender (try ' + attempt + ')...', 'connecting');
+    log(
+      "Calling " +
+      targetId +
+      "...",
+      "info"
+    );
 
-  const conn = peer.connect(targetId, { reliable: true });
-  if(!conn){ scheduleRetry(); return; }
-  dataConn = conn;
-  let offerSent = false;
 
-  conn.on('open', async ()=>{
-    log('Channel OPEN. Sending receive-only offer...', 'ok');
-    offerSent = true;
-    await createReceiveOnlyOffer(conn);
-  });
+    /*
+     * We use an empty MediaStream.
+     *
+     * The sender's microphone stream is sent
+     * when the sender answers this call.
+     */
 
-  conn.on('data', async data=>{
-    if(data.type === 'answer'){
-      try{
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        log('Answer applied.', 'ok');
-      }catch(e){ log('setRemoteDescription failed: ' + e.message, 'err'); }
-    } else if(data.type === 'ice' && pc){
-      try{ await pc.addIceCandidate(data.candidate); }catch(e){}
+    const emptyStream =
+      new MediaStream();
+
+
+    const call =
+      peer.call(
+        targetId,
+        emptyStream
+      );
+
+
+    if (!call) {
+
+      log(
+        "peer.call() returned nothing.",
+        "err"
+      );
+
+
+      retryTimer =
+        setTimeout(
+          attemptCall,
+          3000
+        );
+
+      return;
+
     }
-  });
 
-  conn.on('close', ()=>{
-    log('Channel closed.' + (gotStream ? '' : ' No audio received.'), 'warn');
-    if(!gotStream){ setStatus('listener', 'Retrying...', 'connecting'); scheduleRetry(); }
-  });
 
-  conn.on('error', e=>{ log('Channel error: ' + e, 'err'); scheduleRetry(); });
+    currentCall = call;
 
-  setTimeout(()=>{
-    if(!offerSent && !gotStream){
-      log('Channel never opened in 8s. Retrying...', 'warn');
-      scheduleRetry();
+
+    log(
+      "Call created successfully.",
+      "ok"
+    );
+
+
+    // =====================================================
+    // REMOTE STREAM
+    // =====================================================
+
+    call.on(
+      "stream",
+      remoteStream => {
+
+        log(
+          "REMOTE AUDIO STREAM RECEIVED ✓",
+          "ok"
+        );
+
+
+        const audio =
+          document.getElementById(
+            "remoteAudio"
+          );
+
+
+        // Remove previous stream.
+
+        audio.srcObject = null;
+
+
+        // Attach new stream.
+
+        audio.srcObject =
+          remoteStream;
+
+
+        audio.muted = false;
+
+        audio.volume = 1.0;
+
+
+        setStatus(
+          "listener",
+          "Connected — audio received ✓",
+          "connected"
+        );
+
+
+        // Try playing automatically.
+
+        const playPromise =
+          audio.play();
+
+
+        if (playPromise) {
+
+          playPromise
+            .then(() => {
+
+              log(
+                "Audio playback started ✓",
+                "ok"
+              );
+
+              listeningStarted = true;
+
+            })
+            .catch(error => {
+
+              log(
+                "Autoplay blocked: " +
+                error.message,
+                "warn"
+              );
+
+              setStatus(
+                "listener",
+                "Connected — tap START LISTENING",
+                "connected"
+              );
+
+            });
+
+        }
+
+      }
+    );
+
+
+    // =====================================================
+    // ICE STATE
+    // =====================================================
+
+    if (call.peerConnection) {
+
+      call.peerConnection
+        .oniceconnectionstatechange =
+        () => {
+
+          const state =
+            call.peerConnection
+              .iceConnectionState;
+
+
+          log(
+            "ICE state: " +
+            state,
+            "info"
+          );
+
+
+          if (
+            state === "connected" ||
+            state === "completed"
+          ) {
+
+            log(
+              "WebRTC network connection established ✓",
+              "ok"
+            );
+
+          }
+
+
+          if (
+            state === "failed"
+          ) {
+
+            log(
+              "ICE connection FAILED.",
+              "err"
+            );
+
+          }
+
+        };
+
+
+      // ===================================================
+      // CONNECTION STATE
+      // ===================================================
+
+      call.peerConnection
+        .onconnectionstatechange =
+        () => {
+
+          const state =
+            call.peerConnection
+              .connectionState;
+
+
+          log(
+            "Connection state: " +
+            state,
+            "info"
+          );
+
+
+          if (
+            state === "connected"
+          ) {
+
+            log(
+              "Peer connection established ✓",
+              "ok"
+            );
+
+          }
+
+        };
+
+
+      // ===================================================
+      // REMOTE TRACK
+      // ===================================================
+
+      call.peerConnection
+        .ontrack =
+        event => {
+
+          log(
+            "Remote " +
+            event.track.kind +
+            " track received ✓",
+            "ok"
+          );
+
+
+          if (
+            event.track.kind !==
+            "audio"
+          ) {
+
+            return;
+
+          }
+
+
+          const audio =
+            document.getElementById(
+              "remoteAudio"
+            );
+
+
+          let stream;
+
+
+          if (
+            event.streams &&
+            event.streams.length > 0
+          ) {
+
+            stream =
+              event.streams[0];
+
+          } else {
+
+            stream =
+              new MediaStream([
+                event.track
+              ]);
+
+          }
+
+
+          audio.srcObject =
+            stream;
+
+          audio.muted = false;
+
+          audio.volume = 1.0;
+
+
+          audio.play()
+            .then(() => {
+
+              log(
+                "Remote audio track playing ✓",
+                "ok"
+              );
+
+            })
+            .catch(error => {
+
+              log(
+                "Audio play blocked: " +
+                error.message,
+                "warn"
+              );
+
+            });
+
+        };
+
     }
-  }, 8000);
-}
 
-async function createReceiveOnlyOffer(conn){
-  if(pc){ try{ pc.close(); }catch(e){} pc = null; }
-  pc = new RTCPeerConnection(iceConfig);
-  pc.addTransceiver('audio', { direction: 'recvonly' });
 
-  pc.ontrack = e=>{
-    gotStream = true;
-    log('AUDIO TRACK RECEIVED ✓', 'ok');
-    const a = document.getElementById('remoteAudio');
-    a.srcObject = e.streams[0];
-    a.play().catch(err=> log('Autoplay blocked — tap "Enable Sound".', 'warn'));
-    setStatus('listener', 'Connected — receiving audio ✓', 'connected');
-    attempt = 0;
-  };
+    // =====================================================
+    // CALL CLOSE
+    // =====================================================
 
-  pc.onicecandidate = e=>{ if(e.candidate && conn.open) conn.send({ type:'ice', candidate:e.candidate }); };
+    call.on("close", () => {
 
-  pc.oniceconnectionstatechange = ()=>{
-    const s = pc.iceConnectionState;
-    log('ICE state: ' + s, s === 'failed' ? 'err' : 'info');
-    if(s === 'failed' || s === 'disconnected'){
-      setStatus('listener', 'Connection dropped. Retrying...', 'connecting');
-      scheduleRetry();
+      currentCall = null;
+
+
+      log(
+        "Call closed by sender.",
+        "warn"
+      );
+
+
+      setStatus(
+        "listener",
+        "Sender disconnected. Retrying...",
+        "connecting"
+      );
+
+
+      document
+        .getElementById(
+          "remoteAudio"
+        )
+        .srcObject = null;
+
+
+      retryTimer =
+        setTimeout(
+          attemptCall,
+          3000
+        );
+
+    });
+
+
+    // =====================================================
+    // CALL ERROR
+    // =====================================================
+
+    call.on("error", error => {
+
+      log(
+        "CALL ERROR: " +
+        error.message,
+        "err"
+      );
+
+
+      retryTimer =
+        setTimeout(
+          attemptCall,
+          3000
+        );
+
+    });
+
+
+    // =====================================================
+    // STREAM TIMEOUT
+    // =====================================================
+
+    retryTimer =
+      setTimeout(() => {
+
+        const audio =
+          document.getElementById(
+            "remoteAudio"
+          );
+
+
+        if (
+          !audio.srcObject
+        ) {
+
+          log(
+            "No remote audio after 8 seconds. Retrying...",
+            "warn"
+          );
+
+
+          try {
+
+            call.close();
+
+          } catch (e) {}
+
+
+          attemptCall();
+
+        }
+
+      }, 8000);
+
+  }
+
+
+  // =========================================================
+  // START LISTENING BUTTON
+  // =========================================================
+
+  function startListening() {
+
+    const audio =
+      document.getElementById(
+        "remoteAudio"
+      );
+
+
+    if (!audio.srcObject) {
+
+      log(
+        "No remote audio stream available yet.",
+        "warn"
+      );
+
+
+      setStatus(
+        "listener",
+        "Waiting for sender audio...",
+        "connecting"
+      );
+
+
+      return;
+
     }
-  };
 
-  try{
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    conn.send({ type:'offer', sdp: pc.localDescription });
-    log('Offer sent.', 'info');
-  }catch(e){ log('createOffer failed: ' + e.message, 'err'); scheduleRetry(); }
-}
 
-function forcePlay(){
-  const a = document.getElementById('remoteAudio');
-  a.muted = false; a.volume = 1.0;
-  a.play().then(()=>{
-    log('Playback enabled.', 'ok');
-    document.getElementById('playBtn').textContent = '🔊 Sound Enabled';
-  }).catch(e=> log('Play failed: ' + e.message, 'err'));
-}
+    audio.muted = false;
 
-document.body.addEventListener('click', ()=>{
-  const a = document.getElementById('remoteAudio');
-  if(a && a.srcObject) a.play().catch(()=>{});
-}, { once: true });
+    audio.volume = 1.0;
+
+
+    audio.play()
+      .then(() => {
+
+        listeningStarted = true;
+
+
+        const button =
+          document.getElementById(
+            "listenBtn"
+          );
+
+
+        button.textContent =
+          "🔊 LISTENING";
+
+        button.classList.add(
+          "started"
+        );
+
+
+        setStatus(
+          "listener",
+          "Playing sender audio ✓",
+          "connected"
+        );
+
+
+        log(
+          "Audio playback started by user.",
+          "ok"
+        );
+
+      })
+      .catch(error => {
+
+        log(
+          "Could not start audio: " +
+          error.message,
+          "err"
+        );
+
+      });
+
+  }
+
+
+  // =========================================================
+  // PAGE TAP FALLBACK
+  // =========================================================
+
+  document.body.addEventListener(
+    "click",
+    () => {
+
+      const audio =
+        document.getElementById(
+          "remoteAudio"
+        );
+
+
+      if (
+        audio &&
+        audio.srcObject &&
+        !listeningStarted
+      ) {
+
+        audio.muted = false;
+
+        audio.volume = 1;
+
+
+        audio.play()
+          .then(() => {
+
+            listeningStarted = true;
+
+            log(
+              "Audio started after user interaction ✓",
+              "ok"
+            );
+
+          })
+          .catch(() => {});
+
+      }
+
+    }
+  );
+
 </script>
 
 </body>
